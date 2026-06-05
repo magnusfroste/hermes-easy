@@ -1,0 +1,32 @@
+#
+# docker-compose.yml — Hermes Agent on Easypanel
+#
+# Pulls nousresearch/hermes-agent:latest — no local build.
+# One container: s6-overlay supervises gateway + dashboard internally.
+#
+services:
+  dashboard:
+    image: nousresearch/hermes-agent:latest
+    restart: unless-stopped
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-9119}:9119"
+    volumes:
+      - ./data:/opt/data:z
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - HERMES_UID=${HERMES_UID:-10000}
+      - HERMES_GID=${HERMES_GID:-10000}
+      - HERMES_DASHBOARD=1
+      - HERMES_DASHBOARD_INSECURE=1
+      # Default model (format: provider/model-name or just model-name for custom endpoints):
+      - HERMES_MODEL=${HERMES_MODEL:-autoversio}
+      # Custom OpenAI-compatible endpoint:
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # Or use OpenRouter for multi-model access:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      # Uncomment to enable the OpenAI-compatible API server (requires auth key):
+      # - API_SERVER_HOST=0.0.0.0
+      # - API_SERVER_KEY=${API_SERVER_KEY}
+    command: ["gateway", "run"]
