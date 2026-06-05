@@ -20,7 +20,7 @@ services:
       - HERMES_DASHBOARD=1
       - HERMES_DASHBOARD_INSECURE=1
       # Default model (format: provider/model-name or just model-name for custom endpoints):
-      - HERMES_MODEL=${HERMES_MODEL:-autoversio}
+      - HERMES_MODEL=${HERMES_MODEL:-}
       # Custom OpenAI-compatible endpoint:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}

@@ -22,7 +22,7 @@ OPENAI_API_KEY=<din-nyckel-eller-dummy>
 |----------|---------|-------------|
 | `HERMES_UID` | `10000` | UID som containern kör som |
 | `HERMES_GID` | `10000` | GID som containern kör som |
-| `HERMES_MODEL` | `autoversio` | Standardmodell — sätts permanent, ändras inte vid refresh |
+| `HERMES_MODEL` | _(tom)_ | Standardmodell — sätts permanent, ändras inte vid refresh |
 
 ## Dashboard
 
