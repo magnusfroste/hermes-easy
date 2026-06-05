@@ -1,55 +1,55 @@
 # Hermes Easy
 
-Det snabbaste, enklaste sättet att köra [Hermes Agent](https://github.com/NousResearch/hermes-agent) på [Easypanel](https://easypanel.io).
+The fastest, simplest way to run [Hermes Agent](https://github.com/NousResearch/hermes-agent) on [Easypanel](https://easypanel.io).
 
-Ingen byggtid. Ingen konfiguration. Bara deploy och kör.
+No build step. No complex configuration. Just deploy and go.
 
 ---
 
-## Kom igång
+## Getting Started
 
-### 1. Skapa en Docker Compose-service i Easypanel
+### 1. Create a Docker Compose service in Easypanel
 
-I ditt Easypanel-projekt: **Create Service → Docker Compose** och peka på detta repo.
+In your Easypanel project: **Create Service → Docker Compose** and point it to this repo.
 
-### 2. Anslut Git-repot
+### 2. Connect the Git repo
 
-Ange `https://github.com/magnusfroste/hermes-easy` som källa. Easypanel hämtar `docker-compose.yml` automatiskt.
+Enter `https://github.com/magnusfroste/hermes-easy` as the source. Easypanel will pick up `docker-compose.yml` automatically.
 
-### 3. Klistra in env-variabler
+### 3. Set your environment variables
 
-Under servicens **Environment**-flik, fyll i minst:
+Under the service's **Environment** tab, set at minimum:
 
 ```
 OPENAI_BASE_URL=https://api.example.com/v1
-OPENAI_API_KEY=din-nyckel
+OPENAI_API_KEY=your-key
 HERMES_MODEL=gpt-4o
 ```
 
-Se [env.md](env.md) för alla tillgängliga variabler.
+See [env.md](env.md) for all available variables.
 
-### 4. Deploya
+### 4. Deploy
 
-Tryck **Deploy**. Easypanel startar containern — dashboarden är tillgänglig på den port du konfigurerat.
-
----
-
-## Uppdatera
-
-`docker-compose.yml` använder alltid `nousresearch/hermes-agent:latest`. För att uppgradera till senaste versionen av Hermes: tryck **Deploy** igen i Easypanel så dras den nya imagen.
-
-## Persistens
-
-Data lagras i Easypanels projektmapp på hosten:
-
-```
-/etc/easypanel/projects/<projektnamn>/
-```
-
-Allt bevaras mellan deploys och omstarter.
+Hit **Deploy**. Easypanel starts the container — the dashboard is available on the port you configured.
 
 ---
 
-## Vad är detta?
+## Updating
 
-Hermes Easy är ett tunt lager ovanpå den officiella Hermes-imagen — en enda `docker-compose.yml` med rimliga defaults och dokumenterade env-variabler, optimerad för Easypanel.
+`docker-compose.yml` always pulls `nousresearch/hermes-agent:latest`. To upgrade to the latest version of Hermes, just hit **Deploy** again in Easypanel.
+
+## Persistence
+
+Data is stored in Easypanel's project folder on the host:
+
+```
+/etc/easypanel/projects/<your-project>/
+```
+
+Everything is preserved across deploys and restarts.
+
+---
+
+## What is this?
+
+Hermes Easy is a thin wrapper around the official Hermes image — a single `docker-compose.yml` with sensible defaults and documented environment variables, optimized for Easypanel.
