@@ -21,11 +21,18 @@ services:
       - HERMES_DASHBOARD_INSECURE=1
       # Default model (format: provider/model-name or just model-name for custom endpoints):
       - HERMES_MODEL=${HERMES_MODEL:-}
-      # Custom OpenAI-compatible endpoint:
+      # Custom OpenAI-compatible endpoint (e.g. a vLLM/Ollama box):
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      # Or use OpenRouter for multi-model access:
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      # Provider API keys — set any of these to switch model/provider in Hermes
+      # (use the dashboard /model command). Leave blank to disable a provider.
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}   # multi-model aggregator
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}     # Claude
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}           # Google Gemini
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}       # DeepSeek
+      - GROQ_API_KEY=${GROQ_API_KEY:-}               # Groq
+      - XAI_API_KEY=${XAI_API_KEY:-}                 # xAI Grok
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}         # Mistral
       # Uncomment to enable the OpenAI-compatible API server (requires auth key):
       # - API_SERVER_HOST=0.0.0.0
       # - API_SERVER_KEY=${API_SERVER_KEY}
