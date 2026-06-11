@@ -22,7 +22,7 @@ services:
       # INSECURE=1 disables the auth gate entirely (fine for dev / trusted LAN).
       # To enable password login: unset this AND set HERMES_DASHBOARD_BASIC_AUTH_*.
       # WARNING: removing INSECURE without setting auth vars crashes the container.
-      - HERMES_DASHBOARD_INSECURE=${HERMES_DASHBOARD_INSECURE:-1}
+      - HERMES_DASHBOARD_INSECURE=${HERMES_DASHBOARD_INSECURE-1}
       # --- Password auth (basic auth provider) ---
       # Set all three to enable a login form. INSECURE must be unset/empty.
       - HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:-}
