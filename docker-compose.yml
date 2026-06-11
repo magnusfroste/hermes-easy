@@ -29,6 +29,8 @@ services:
       - HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}
       # A random string that makes sessions survive container restarts:
       - HERMES_DASHBOARD_BASIC_AUTH_SECRET=${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}
+      # Playwright browser binaries path — put in data volume so they survive redeploy:
+      - PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/opt/data/.cache/ms-playwright}
       # Default model (format: provider/model-name or just model-name for custom endpoints):
       - HERMES_MODEL=${HERMES_MODEL:-}
       # Custom OpenAI-compatible endpoint (e.g. a vLLM/Ollama box):
