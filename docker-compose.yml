@@ -7,6 +7,7 @@
 services:
   dashboard:
     image: nousresearch/hermes-agent:latest
+    pull_policy: always
     restart: unless-stopped
     ports:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-9119}:9119"
@@ -18,7 +19,16 @@ services:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
       - HERMES_DASHBOARD=1
-      - HERMES_DASHBOARD_INSECURE=1
+      # INSECURE=1 disables the auth gate entirely (fine for dev / trusted LAN).
+      # To enable password login: unset this AND set HERMES_DASHBOARD_BASIC_AUTH_*.
+      # WARNING: removing INSECURE without setting auth vars crashes the container.
+      - HERMES_DASHBOARD_INSECURE=${HERMES_DASHBOARD_INSECURE:-1}
+      # --- Password auth (basic auth provider) ---
+      # Set all three to enable a login form. INSECURE must be unset/empty.
+      - HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:-}
+      - HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}
+      # A random string that makes sessions survive container restarts:
+      - HERMES_DASHBOARD_BASIC_AUTH_SECRET=${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}
       # Default model (format: provider/model-name or just model-name for custom endpoints):
       - HERMES_MODEL=${HERMES_MODEL:-}
       # Custom OpenAI-compatible endpoint (e.g. a vLLM/Ollama box):
