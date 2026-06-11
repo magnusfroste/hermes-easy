@@ -7,7 +7,7 @@
 services:
   dashboard:
     image: nousresearch/hermes-agent:latest
-    pull_policy: always
+    pull_policy: ${PULL_POLICY:-always}
     restart: unless-stopped
     ports:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-9119}:9119"
