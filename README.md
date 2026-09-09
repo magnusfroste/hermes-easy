@@ -18,19 +18,27 @@ Enter `https://github.com/magnusfroste/hermes-easy` as the source. Easypanel wil
 
 ### 3. Set your environment variables
 
-Under the service's **Environment** tab, set at minimum:
+Under the service's **Environment** tab, set at minimum a model provider, the dashboard
+login, and (for a shared-data fleet) the Supabase MCP trio:
 
 ```
-OPENAI_BASE_URL=https://api.example.com/v1
-OPENAI_API_KEY=your-key
-HERMES_MODEL=gpt-4o
+OPENROUTER_API_KEY=your-key
+HERMES_MODEL=openai/gpt-4o
+HERMES_DASHBOARD_BASIC_AUTH_USERNAME=alice
+HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=s3cret
+HERMES_DASHBOARD_BASIC_AUTH_SECRET=<openssl rand -hex 32>
+SUPABASE_MCP_URL=https://skillhub.example.com/mcp
+SUPABASE_MCP_KEY=<MCP_KEY_NN from the Supabase service>
+HERMES_AGENT_ID=agent_NN
 ```
 
-See [env.md](env.md) for all available variables.
+The dashboard login is not optional: Hermes 2026.9+ refuses to start the dashboard on a
+non-loopback bind without it. See [env.md](env.md) for all variables and [example.env](example.env).
 
 ### 4. Deploy
 
-Hit **Deploy**. Easypanel starts the container — the dashboard is available on the port you configured.
+Hit **Deploy**, then add a **Domain** on the service pointing at port `9119`. There is no
+host port; the dashboard is reached through that domain.
 
 ---
 
@@ -64,7 +72,9 @@ correctly.
 
 ## Updating
 
-`docker-compose.yml` always pulls `nousresearch/hermes-agent:latest`. To upgrade to the latest version of Hermes, just hit **Deploy** again in Easypanel.
+`docker-compose.yml` pulls `nousresearch/hermes-agent:${HERMES_TAG:-latest}` on every
+Redeploy. `latest` tracks upstream `main` and is usually ahead of the newest release; pin
+`HERMES_TAG=v2026.9.7`-style tags when you want the same image every time.
 
 ## Persistence
 

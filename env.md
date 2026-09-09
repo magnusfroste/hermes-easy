@@ -26,69 +26,85 @@ Set any of these and you can switch between providers live in Hermes via the
 | `MISTRAL_API_KEY` | Mistral |
 | `OPENAI_BASE_URL` + `OPENAI_API_KEY` | Any OpenAI-compatible endpoint (vLLM, Ollama, custom) |
 
-## Dashboard auth
+## Dashboard auth (required)
 
-By default (`HERMES_DASHBOARD_INSECURE=1`) the dashboard is open — no login required.
-That's fine for development or a trusted network. For production / multi-tenant use, set a password instead.
-
-### Open (default — dev / trusted LAN)
-
-```
-HERMES_DASHBOARD_INSECURE=1
-```
-
-### Password-protected
-
-**Remove** `HERMES_DASHBOARD_INSECURE` (or set it to an empty string) and set:
+Hermes v0.21 (2026.9) changed the rule: the dashboard **refuses to bind on 0.0.0.0
+without an auth provider**, and `HERMES_DASHBOARD_INSECURE` no longer disables the
+gate on a non-loopback bind. Since Easypanel reaches the container over the Docker
+network, the bind is always non-loopback, so a password is mandatory:
 
 ```
 HERMES_DASHBOARD_BASIC_AUTH_USERNAME=alice
 HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=s3cret
-HERMES_DASHBOARD_BASIC_AUTH_SECRET=<random 32+ char string>
+HERMES_DASHBOARD_BASIC_AUTH_SECRET=<openssl rand -hex 32>
 ```
 
-Generate the secret with `openssl rand -hex 32`.
+> **Fails closed:** without these the log says `Refusing to bind dashboard to 0.0.0.0`
+> and the dashboard never comes up, while the gateway keeps running. Check the
+> container log first when the Domain answers 502.
 
-> **IMPORTANT — fails-closed:** If `HERMES_DASHBOARD_INSECURE` is empty but no
-> `BASIC_AUTH_USERNAME`/`PASSWORD` are set, the container **refuses to start**.
-> Always set the auth vars before removing INSECURE.
-
-| Variable | Required for auth | Description |
-|----------|-------------------|-------------|
-| `HERMES_DASHBOARD_INSECURE` | Must be empty | Set to `1` to disable auth gate; leave empty to enable it |
-| `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` | Yes | Login username |
-| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` | Yes | Plaintext password (hashed in memory at startup) |
-| `HERMES_DASHBOARD_BASIC_AUTH_SECRET` | Yes | HMAC signing key for session tokens — sessions die on restart without this |
+| Variable | Description |
+|----------|-------------|
+| `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` | Login username |
+| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` | Plaintext password (hashed in memory at startup) |
+| `HERMES_DASHBOARD_BASIC_AUTH_SECRET` | HMAC signing key for session tokens — sessions die on restart without it |
+| `HERMES_DASHBOARD_INSECURE` | Only honoured by images older than 2026.9. Leave empty. |
 
 ## Networking
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_PORT` | `9119` | Host port the dashboard is published on |
-| `APP_BIND` | `127.0.0.1` | Host interface to bind (`0.0.0.0` to reach it from outside the server) |
+No host port is published. Give the service a **Domain** in Easypanel pointing at
+container port `9119`; Traefik does the rest. `APP_PORT` and `APP_BIND` from earlier
+versions of this repo are gone: a `ports:` binding makes a second Hermes on the same
+host fail with "port is already allocated" while Easypanel still reports success.
 
 ## Image updates
 
-The compose file sets `pull_policy: always`, so every Easypanel **Redeploy**
-fetches the newest `nousresearch/hermes-agent:latest` image before starting the
-container. A plain **Restart** reuses the cached image.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PULL_POLICY` | `always` | Every Easypanel **Redeploy** pulls the image first. `missing` reuses the cached one. |
+| `HERMES_TAG` | (empty = `latest`) | Docker Hub tag. `latest` is rebuilt from upstream `main` several times a week and is usually *ahead* of the newest GitHub release (on 2026-09-09: `latest` = v0.21.1 built that night, newest release tag `v2026.9.7`). Pin a `vYYYY.M.D` tag for reproducible redeploys. |
 
 ## Running multiple Hermes instances
 
-Easypanel routes a domain to each service via Traefik → the container's internal
-port `9119` (e.g. `https://app-hermes2.<your>.easypanel.host`). The published
-host port is **not** used for domain access.
+One Easypanel service per Hermes (separate `data` volume), each with its own Domain.
+Nothing else to manage: there are no host ports. The container's internal port is
+`9119` for all of them. Give each its own `HERMES_AGENT_ID` and `SUPABASE_MCP_KEY`.
 
-Give **each** Hermes its own Easypanel service (separate `data` volume). Then:
+## Supabase MCP (shared data for a fleet of agents)
 
-- **Domain access (recommended for many instances):** drop the `ports:` block
-  entirely and reach each instance via its Easypanel domain. No host-port
-  management, no conflicts.
-- **Direct host port:** if you keep `ports:` and want `localhost:port` access on
-  the server, give each instance a unique `APP_PORT` (9119, 9120, 9121…),
-  otherwise the second container fails with "port already allocated".
+Pairs with [supabase-easy](https://github.com/magnusfroste/supabase-easy): Studio's MCP
+server behind Kong key-auth, one key per agent.
 
-The container's internal port stays `9119` for all of them.
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `SUPABASE_MCP_URL` | `https://skillhub.example.com/mcp` | Streamable-HTTP MCP endpoint |
+| `SUPABASE_MCP_KEY` | `MCP_KEY_03` value from the Supabase service | Sent as header `apikey` (not `Authorization: Bearer` — Kong ignores that) |
+| `HERMES_AGENT_ID` | `agent_03` | Identifier in the shared data; same number as the key slot |
+
+At every boot the compose `command` seeds `config.yaml`:
+
+```yaml
+mcp_servers:
+  supabase:
+    url: https://skillhub.example.com/mcp
+    headers:
+      apikey: ${SUPABASE_MCP_KEY}
+    enabled: true
+    timeout: 120
+```
+
+The key itself is never written to the volume; Hermes resolves `${SUPABASE_MCP_KEY}`
+from the container environment when it connects. `HERMES_AGENT_ID` appends one marked
+line to `SOUL.md` telling the agent its identifier and to read the shared
+`supabase-konventioner` skill before writing. Both are re-applied on every boot, so
+edit the env, not the files. Restrict tools by adding under the same block by hand:
+
+```yaml
+    tools:
+      exclude: [apply_migration]
+```
+
+Verify from the dashboard: `/reload-mcp`, then ask the agent to run `list_tables`.
 
 ## Local model (Ollama on host)
 

@@ -1,16 +1,22 @@
 #
 # docker-compose.yml — Hermes Agent on Easypanel
 #
-# Pulls nousresearch/hermes-agent:latest — no local build.
-# One container: s6-overlay supervises gateway + dashboard internally.
+# Pulls nousresearch/hermes-agent (no local build). One container: s6-overlay
+# supervises gateway + dashboard internally. State lives in ./data (HERMES_HOME).
 #
 services:
   dashboard:
-    image: nousresearch/hermes-agent:latest
+    # `latest` is rebuilt from upstream main several times a week and is usually AHEAD of
+    # the newest GitHub release. Pin HERMES_TAG=v2026.9.7 (a Docker Hub tag) when you
+    # want every Redeploy to be reproducible; leave it unset to track main.
+    image: nousresearch/hermes-agent:${HERMES_TAG:-latest}
     pull_policy: ${PULL_POLICY:-always}
     restart: unless-stopped
-    ports:
-      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-9119}:9119"
+    # Never publish a host port on an Easypanel host: Traefik routes the service's Domain
+    # to the container port below, and a `ports:` binding makes a second instance fail
+    # with "port is already allocated" while Easypanel still reports success.
+    expose:
+      - "9119"
     volumes:
       - ./data:/opt/data:z
     extra_hosts:
@@ -19,16 +25,18 @@ services:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
       - HERMES_DASHBOARD=1
-      # INSECURE=1 disables the auth gate entirely (fine for dev / trusted LAN).
-      # To enable password login: unset this AND set HERMES_DASHBOARD_BASIC_AUTH_*.
-      # WARNING: removing INSECURE without setting auth vars crashes the container.
-      - HERMES_DASHBOARD_INSECURE=${HERMES_DASHBOARD_INSECURE-1}
-      # --- Password auth (basic auth provider) ---
-      # Set all three to enable a login form. INSECURE must be unset/empty.
+      # --- Dashboard auth ---
+      # Since Hermes v0.21 (2026.9) the dashboard refuses to bind on 0.0.0.0 without an
+      # auth provider; HERMES_DASHBOARD_INSECURE no longer disables the gate on a
+      # non-loopback bind. Set all three BASIC_AUTH vars. The container fails closed
+      # without them — that is the intended behaviour on an internet-facing host.
       - HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:-}
       - HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}
       # A random string that makes sessions survive container restarts:
       - HERMES_DASHBOARD_BASIC_AUTH_SECRET=${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}
+      # Kept for images older than 2026.9 only; ignored by current ones. Single-dash
+      # default so an explicitly empty value stays empty.
+      - HERMES_DASHBOARD_INSECURE=${HERMES_DASHBOARD_INSECURE-}
       # Playwright browser binaries path — put in data volume so they survive redeploy:
       - PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/opt/data/.cache/ms-playwright}
       # Default model (format: provider/model-name or just model-name for custom endpoints):
@@ -45,7 +53,39 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY:-}               # Groq
       - XAI_API_KEY=${XAI_API_KEY:-}                 # xAI Grok
       - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}         # Mistral
+      # --- Shared Supabase via MCP (see env.md "Supabase MCP") ---
+      # When both URL and KEY are set, the boot seed below writes mcp_servers.supabase
+      # into config.yaml with a ${SUPABASE_MCP_KEY} placeholder — the key itself never
+      # lands on the data volume, Hermes resolves it from this environment at connect time.
+      - SUPABASE_MCP_URL=${SUPABASE_MCP_URL:-}
+      - SUPABASE_MCP_KEY=${SUPABASE_MCP_KEY:-}
+      # This agent's identifier in the shared data (owner / created_by): agent_01 … agent_10,
+      # same number as the MCP_KEY slot on the Supabase side. Appended to SOUL.md at boot.
+      - HERMES_AGENT_ID=${HERMES_AGENT_ID:-}
       # Uncomment to enable the OpenAI-compatible API server (requires auth key):
       # - API_SERVER_HOST=0.0.0.0
       # - API_SERVER_KEY=${API_SERVER_KEY}
-    command: ["gateway", "run"]
+    # Boot seed, then the normal gateway. The image's main-wrapper runs this as the
+    # `hermes` user with the venv active and HOME=/opt/data, so files it writes get the
+    # right owner. Env is applied on EVERY boot (same rule as openclaw-easy): editing the
+    # supabase block or the identity line by hand reverts on redeploy — change the env.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ -n "${SUPABASE_MCP_URL:-}" ] && [ -n "${SUPABASE_MCP_KEY:-}" ]; then
+          hermes config set mcp_servers.supabase.url "$$SUPABASE_MCP_URL" --force >/dev/null
+          hermes config set mcp_servers.supabase.headers.apikey '$${SUPABASE_MCP_KEY}' --force >/dev/null
+          hermes config set mcp_servers.supabase.enabled true --force >/dev/null
+          hermes config set mcp_servers.supabase.timeout 120 --force >/dev/null
+          echo "[hermes-easy] mcp_servers.supabase -> $$SUPABASE_MCP_URL"
+        fi
+        if [ -n "${HERMES_AGENT_ID:-}" ]; then
+          S="$$HOME/SOUL.md"
+          [ -f "$$S" ] || cp /opt/hermes/docker/SOUL.md "$$S"
+          grep -v 'hermes-easy:agent-id' "$$S" > "$$S.tmp" && mv "$$S.tmp" "$$S"
+          printf '\n\nDin identifierare i den delade Supabase-databasen är %s. Använd den i owner, created_by och updated_by, och filtrera alltid på visibility = public eller owner = %s. Läs skillen supabase-konventioner i skill_library innan du skriver. <!-- hermes-easy:agent-id -->\n' "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" >> "$$S"
+          echo "[hermes-easy] SOUL.md identity -> $$HERMES_AGENT_ID"
+        fi
+        exec hermes gateway run
