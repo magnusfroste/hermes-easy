@@ -80,6 +80,11 @@ services:
       # lands on the data volume, Hermes resolves it from this environment at connect time.
       - SUPABASE_MCP_URL=${SUPABASE_MCP_URL:-}
       - SUPABASE_MCP_KEY=${SUPABASE_MCP_KEY:-}
+      # Husets egna verktyg (supabase-easy: edge-funktionen `lager` bakom samma Kong-nyckel).
+      # Tomt värde härleds från SUPABASE_MCP_URL: .../mcp -> .../lager. Sätt till "-" för att
+      # stänga av. Servern ERSÄTTER inte Supabases MCP, den kompletterar den: execute_sql
+      # finns kvar för det som ska uppfinnas, verktygen för det som ska bli konsekvent.
+      - SUPABASE_LAGER_URL=${SUPABASE_LAGER_URL:-}
       # This agent's identifier in the shared data (owner / created_by): agent_01 … agent_10,
       # same number as the MCP_KEY slot on the Supabase side. Appended to SOUL.md at boot.
       - HERMES_AGENT_ID=${HERMES_AGENT_ID:-}
@@ -101,6 +106,14 @@ services:
           hermes config set mcp_servers.supabase.enabled true --force >/dev/null
           hermes config set mcp_servers.supabase.timeout 120 --force >/dev/null
           echo "[hermes-easy] mcp_servers.supabase -> $$SUPABASE_MCP_URL"
+          LAGER="$${SUPABASE_LAGER_URL:-$${SUPABASE_MCP_URL%/mcp}/lager}"
+          if [ "$$LAGER" != "-" ]; then
+            hermes config set mcp_servers.lager.url "$$LAGER" --force >/dev/null
+            hermes config set mcp_servers.lager.headers.apikey '$${SUPABASE_MCP_KEY}' --force >/dev/null
+            hermes config set mcp_servers.lager.enabled true --force >/dev/null
+            hermes config set mcp_servers.lager.timeout 120 --force >/dev/null
+            echo "[hermes-easy] mcp_servers.lager -> $$LAGER"
+          fi
         fi
         if [ -n "${HERMES_AGENT_ID:-}" ]; then
           S="$$HOME/SOUL.md"
