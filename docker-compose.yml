@@ -127,7 +127,7 @@ services:
           S="$$HOME/SOUL.md"
           [ -f "$$S" ] || cp /opt/hermes/docker/SOUL.md "$$S"
           grep -v 'hermes-easy:agent-id' "$$S" > "$$S.tmp" && mv "$$S.tmp" "$$S"
-          printf '\n\nDelat datalager: din identifierare är %s. Kör verktyget skillhub_oversikt i början av en ny session och skillhub_regler innan du skriver något — reglerna avgör om något ska bli en tabell, en anteckning eller en skill. Sök med skillhub_sok innan du skapar nytt. Skriver du med execute_sql i stället: fyll owner, created_by och updated_by med %s och filtrera alltid på visibility = public eller owner = %s. <!-- hermes-easy:agent-id -->\n' "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" >> "$$S"
+          printf '\n\nShared data store: your identifier is %s. Run the tool skillhub_overview at the start of a session and skillhub_rules before you write anything — the rules decide whether something becomes a table, a note or a skill. Search with skillhub_search before creating anything new, and read whole objects with skillhub_read rather than working from an excerpt. If you write with execute_sql instead: fill owner, created_by and updated_by with %s and always filter on visibility = public or owner = %s. <!-- hermes-easy:agent-id -->\n' "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" >> "$$S"
           echo "[hermes-easy] SOUL.md identity -> $$HERMES_AGENT_ID"
         fi
         exec hermes gateway run
