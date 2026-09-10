@@ -92,10 +92,21 @@ Two things are *not* on the volume, by design:
   they come back with every image. Do not repoint `PLAYWRIGHT_BROWSERS_PATH` at the data
   volume: that directory is empty and the browser tool would re-download the set.
 - **System packages installed with `apt` at runtime.** Those live in the container layer
-  and reset on every redeploy. The base image already has `git`, `ripgrep`, `curl`,
-  `node`/`npm`/`npx`, `uv` and the `docker` CLI; it does **not** have `tmux`, `sudo` or a
-  full `chromium`. If the agent needs those permanently, build a thin image on top instead
-  of installing them at runtime:
+  and reset on every redeploy, and the agent cannot install them anyway: it runs as the
+  unprivileged `hermes` user and the image ships no `sudo`.
+
+  Language-level installs *are* handled by environment variables, no image build needed.
+  The compose file sets `NPM_CONFIG_PREFIX`, `UV_TOOL_DIR` and `UV_TOOL_BIN_DIR` to
+  `/opt/data/.local`, which is on the volume **and** already on the image's `PATH`, so
+  `npm install -g <tool>` and `uv tool install <tool>` survive a redeploy and stay
+  callable. Python packages Hermes installs for itself already land in
+  `/opt/data/lazy-packages` (the image's own `HERMES_LAZY_INSTALL_TARGET`).
+
+  Only real system packages need an image. The base image already has `git`, `ripgrep`,
+  `curl`, `node`/`npm`/`npx`, `uv` and the `docker` CLI; it does **not** have `tmux`,
+  `sudo` or a full `chromium`. "Thin" here means a two-instruction file — upstream's image
+  plus one `apt-get` layer, no source build, no application code — the same pattern
+  `openclaw-easy` uses:
 
   ```dockerfile
   FROM nousresearch/hermes-agent:latest
@@ -104,7 +115,8 @@ Two things are *not* on the volume, by design:
       tmux sudo python3-pip && rm -rf /var/lib/apt/lists/*
   ```
 
-  and point the compose `image:` at it (Easypanel builds it on Deploy).
+  Then swap the `image:` line for a `build: .` in `docker-compose.yml`; Easypanel builds it
+  on Deploy. That is the only reason to add a build step here — everything else is env.
 
 ---
 

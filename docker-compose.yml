@@ -63,6 +63,17 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY:-}               # Groq
       - XAI_API_KEY=${XAI_API_KEY:-}                 # xAI Grok
       - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}         # Mistral
+      # --- Where the agent's own installs land ---
+      # Without these, `npm install -g` and `uv tool install` write to /usr/local, i.e. the
+      # container layer, and vanish on the next Redeploy. Pointing them at /opt/data/.local
+      # puts them on the volume AND on the image's existing PATH (which already contains
+      # /opt/data/.local/bin), so the binaries stay callable. Python packages Hermes installs
+      # for itself already go to /opt/data/lazy-packages via the image's own
+      # HERMES_LAZY_INSTALL_TARGET. Verified working 2026-09-10.
+      # System packages (apt) cannot be redirected this way — they need a Dockerfile.
+      - NPM_CONFIG_PREFIX=${NPM_CONFIG_PREFIX:-/opt/data/.local}
+      - UV_TOOL_DIR=${UV_TOOL_DIR:-/opt/data/.local/uv-tools}
+      - UV_TOOL_BIN_DIR=${UV_TOOL_BIN_DIR:-/opt/data/.local/bin}
       # --- Shared Supabase via MCP (see env.md "Supabase MCP") ---
       # When both URL and KEY are set, the boot seed below writes mcp_servers.supabase
       # into config.yaml with a ${SUPABASE_MCP_KEY} placeholder — the key itself never
