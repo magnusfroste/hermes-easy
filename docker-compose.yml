@@ -91,7 +91,12 @@ services:
       # Uncomment to enable the OpenAI-compatible API server (requires auth key):
       # - API_SERVER_HOST=0.0.0.0
       # - API_SERVER_KEY=${API_SERVER_KEY}
-    # Boot seed, then the normal gateway. The image's main-wrapper runs this as the
+    # Boot seed, then the normal gateway. SOUL.md is the only channel guaranteed to be in
+    # the agent's context every turn: measured 2026-09-10, Hermes puts MCP tools in a
+    # DEFERRED pool once there are many of them — the agent sees names and a ~60-character
+    # truncated description, and the server's own `instructions` never surface at all.
+    # Hence the identity line below names the two entry-point tools explicitly.
+    # The image's main-wrapper runs this as the
     # `hermes` user with the venv active and HOME=/opt/data, so files it writes get the
     # right owner. Env is applied on EVERY boot (same rule as openclaw-easy): editing the
     # supabase block or the identity line by hand reverts on redeploy — change the env.
@@ -119,7 +124,7 @@ services:
           S="$$HOME/SOUL.md"
           [ -f "$$S" ] || cp /opt/hermes/docker/SOUL.md "$$S"
           grep -v 'hermes-easy:agent-id' "$$S" > "$$S.tmp" && mv "$$S.tmp" "$$S"
-          printf '\n\nDin identifierare i den delade Supabase-databasen är %s. Använd den i owner, created_by och updated_by, och filtrera alltid på visibility = public eller owner = %s. Läs skillen supabase-konventioner i skill_library innan du skriver. <!-- hermes-easy:agent-id -->\n' "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" >> "$$S"
+          printf '\n\nDelat datalager: din identifierare är %s. Kör verktyget lager_oversikt i början av en ny session och lager_regler innan du skriver något — reglerna avgör om något ska bli en tabell, en anteckning eller en skill. Sök med lager_sok innan du skapar nytt. Skriver du med execute_sql i stället: fyll owner, created_by och updated_by med %s och filtrera alltid på visibility = public eller owner = %s. <!-- hermes-easy:agent-id -->\n' "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" >> "$$S"
           echo "[hermes-easy] SOUL.md identity -> $$HERMES_AGENT_ID"
         fi
         exec hermes gateway run
