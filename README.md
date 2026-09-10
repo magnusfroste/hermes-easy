@@ -79,13 +79,32 @@ Redeploy. `latest` tracks upstream `main` and is usually ahead of the newest rel
 
 ## Persistence
 
-Data is stored in Easypanel's project folder on the host:
+All of Hermes's state lives in `/opt/data` (`HERMES_HOME`) on the named volume `data`
+(`app_hermes_data` once Easypanel prefixes it): `config.yaml`, `SOUL.md`, sessions,
+memories, skills, cron jobs, the browser profile, and the packages the agent installs
+for itself (`HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages`, plus anything it puts
+under `/opt/data/home`). A **Redeploy keeps all of it** — the container is replaced, the
+volume is not.
 
-```
-/etc/easypanel/projects/<your-project>/
-```
+Two things are *not* on the volume, by design:
 
-Everything is preserved across deploys and restarts.
+- **Playwright browsers** ship inside the image (`/opt/hermes/.playwright`, ~266 MB), so
+  they come back with every image. Do not repoint `PLAYWRIGHT_BROWSERS_PATH` at the data
+  volume: that directory is empty and the browser tool would re-download the set.
+- **System packages installed with `apt` at runtime.** Those live in the container layer
+  and reset on every redeploy. The base image already has `git`, `ripgrep`, `curl`,
+  `node`/`npm`/`npx`, `uv` and the `docker` CLI; it does **not** have `tmux`, `sudo` or a
+  full `chromium`. If the agent needs those permanently, build a thin image on top instead
+  of installing them at runtime:
+
+  ```dockerfile
+  FROM nousresearch/hermes-agent:latest
+  USER root
+  RUN apt-get update && apt-get install -y --no-install-recommends \
+      tmux sudo python3-pip && rm -rf /var/lib/apt/lists/*
+  ```
+
+  and point the compose `image:` at it (Easypanel builds it on Deploy).
 
 ---
 

@@ -2,7 +2,8 @@
 # docker-compose.yml — Hermes Agent on Easypanel
 #
 # Pulls nousresearch/hermes-agent (no local build). One container: s6-overlay
-# supervises gateway + dashboard internally. State lives in ./data (HERMES_HOME).
+# supervises gateway + dashboard internally. All state lives in the named volume `data`
+# mounted at /opt/data (HERMES_HOME) — see README "Persistence".
 #
 services:
   dashboard:
@@ -18,7 +19,13 @@ services:
     expose:
       - "9119"
     volumes:
-      - ./data:/opt/data:z
+      # Named volume, not ./data. Everything Hermes owns lives in /opt/data (HERMES_HOME):
+      # config.yaml, SOUL.md, sessions, memories, skills, cron, the agent's own
+      # lazy-installed packages (HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages) and
+      # anything it pip/npm-installs into /opt/data/home. A bind mount inside the Easypanel
+      # checkout survives a normal Deploy but not a re-clone or a service recreate, and it
+      # cannot be exported as a volume. Same rule as supabase-easy.
+      - data:/opt/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -37,8 +44,11 @@ services:
       # Kept for images older than 2026.9 only; ignored by current ones. Single-dash
       # default so an explicitly empty value stays empty.
       - HERMES_DASHBOARD_INSECURE=${HERMES_DASHBOARD_INSECURE-}
-      # Playwright browser binaries path — put in data volume so they survive redeploy:
-      - PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/opt/data/.cache/ms-playwright}
+      # Playwright browsers are BAKED INTO THE IMAGE (/opt/hermes/.playwright, ~266 MB)
+      # since 2026. Do not repoint this at the data volume: that directory is empty, so
+      # the browser tool would re-download the whole set on first use. Left unset on
+      # purpose; override only if you deliberately want them on the volume.
+      - PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-}
       # Default model (format: provider/model-name or just model-name for custom endpoints):
       - HERMES_MODEL=${HERMES_MODEL:-}
       # Custom OpenAI-compatible endpoint (e.g. a vLLM/Ollama box):
@@ -89,3 +99,7 @@ services:
           echo "[hermes-easy] SOUL.md identity -> $$HERMES_AGENT_ID"
         fi
         exec hermes gateway run
+
+volumes:
+  # Easypanel prefixes this with <project>_<service>, e.g. app_hermes_data.
+  data:
