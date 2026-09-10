@@ -80,11 +80,11 @@ services:
       # lands on the data volume, Hermes resolves it from this environment at connect time.
       - SUPABASE_MCP_URL=${SUPABASE_MCP_URL:-}
       - SUPABASE_MCP_KEY=${SUPABASE_MCP_KEY:-}
-      # Husets egna verktyg (supabase-easy: edge-funktionen `lager` bakom samma Kong-nyckel).
-      # Tomt värde härleds från SUPABASE_MCP_URL: .../mcp -> .../lager. Sätt till "-" för att
-      # stänga av. Servern ERSÄTTER inte Supabases MCP, den kompletterar den: execute_sql
+      # Husets egna verktyg (supabase-easy: edge-funktionen `skillhub` bakom samma Kong-nyckel).
+      # Tomt värde härleds från SUPABASE_MCP_URL: .../mcp -> .../skillhub. Sätt till "-" för
+      # att stänga av. Servern ERSÄTTER inte Supabases MCP, den kompletterar den: execute_sql
       # finns kvar för det som ska uppfinnas, verktygen för det som ska bli konsekvent.
-      - SUPABASE_LAGER_URL=${SUPABASE_LAGER_URL:-}
+      - SUPABASE_SKILLHUB_URL=${SUPABASE_SKILLHUB_URL:-}
       # This agent's identifier in the shared data (owner / created_by): agent_01 … agent_10,
       # same number as the MCP_KEY slot on the Supabase side. Appended to SOUL.md at boot.
       - HERMES_AGENT_ID=${HERMES_AGENT_ID:-}
@@ -111,20 +111,23 @@ services:
           hermes config set mcp_servers.supabase.enabled true --force >/dev/null
           hermes config set mcp_servers.supabase.timeout 120 --force >/dev/null
           echo "[hermes-easy] mcp_servers.supabase -> $$SUPABASE_MCP_URL"
-          LAGER="$${SUPABASE_LAGER_URL:-$${SUPABASE_MCP_URL%/mcp}/lager}"
-          if [ "$$LAGER" != "-" ]; then
-            hermes config set mcp_servers.lager.url "$$LAGER" --force >/dev/null
-            hermes config set mcp_servers.lager.headers.apikey '$${SUPABASE_MCP_KEY}' --force >/dev/null
-            hermes config set mcp_servers.lager.enabled true --force >/dev/null
-            hermes config set mcp_servers.lager.timeout 120 --force >/dev/null
-            echo "[hermes-easy] mcp_servers.lager -> $$LAGER"
+          # Servern hette `lager` fram till 2026-09-10. Ta bort den gamla posten, annars
+          # ligger två servrar mot samma verktyg kvar i konfigurationen efter uppgraderingen.
+          hermes config unset mcp_servers.lager >/dev/null 2>&1 || true
+          HUB="$${SUPABASE_SKILLHUB_URL:-$${SUPABASE_MCP_URL%/mcp}/skillhub}"
+          if [ "$$HUB" != "-" ]; then
+            hermes config set mcp_servers.skillhub.url "$$HUB" --force >/dev/null
+            hermes config set mcp_servers.skillhub.headers.apikey '$${SUPABASE_MCP_KEY}' --force >/dev/null
+            hermes config set mcp_servers.skillhub.enabled true --force >/dev/null
+            hermes config set mcp_servers.skillhub.timeout 120 --force >/dev/null
+            echo "[hermes-easy] mcp_servers.skillhub -> $$HUB"
           fi
         fi
         if [ -n "${HERMES_AGENT_ID:-}" ]; then
           S="$$HOME/SOUL.md"
           [ -f "$$S" ] || cp /opt/hermes/docker/SOUL.md "$$S"
           grep -v 'hermes-easy:agent-id' "$$S" > "$$S.tmp" && mv "$$S.tmp" "$$S"
-          printf '\n\nDelat datalager: din identifierare är %s. Kör verktyget lager_oversikt i början av en ny session och lager_regler innan du skriver något — reglerna avgör om något ska bli en tabell, en anteckning eller en skill. Sök med lager_sok innan du skapar nytt. Skriver du med execute_sql i stället: fyll owner, created_by och updated_by med %s och filtrera alltid på visibility = public eller owner = %s. <!-- hermes-easy:agent-id -->\n' "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" >> "$$S"
+          printf '\n\nDelat datalager: din identifierare är %s. Kör verktyget skillhub_oversikt i början av en ny session och skillhub_regler innan du skriver något — reglerna avgör om något ska bli en tabell, en anteckning eller en skill. Sök med skillhub_sok innan du skapar nytt. Skriver du med execute_sql i stället: fyll owner, created_by och updated_by med %s och filtrera alltid på visibility = public eller owner = %s. <!-- hermes-easy:agent-id -->\n' "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" "$$HERMES_AGENT_ID" >> "$$S"
           echo "[hermes-easy] SOUL.md identity -> $$HERMES_AGENT_ID"
         fi
         exec hermes gateway run
