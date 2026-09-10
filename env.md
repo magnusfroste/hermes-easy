@@ -8,7 +8,7 @@ Set these in Easypanel under the service's **Environment** tab. Values in `docke
 |----------|---------|-------------|
 | `OPENAI_BASE_URL` | `https://api.example.com/v1` | OpenAI-compatible endpoint |
 | `OPENAI_API_KEY` | `sk-...` or `dummy` | API key (must be set even if the endpoint doesn't require auth) |
-| `HERMES_MODEL` | `gpt-4o` | Default model — persists across refreshes |
+| `HERMES_MODEL` | `gpt-4o` | Default model — persists across refreshes. Use the **bare** model name; a `provider/model` prefix such as `openai/gpt-4o` makes Hermes look up `openai` as a provider name and fail with *Unknown provider 'openai'* (hosted providers are picked by which `*_API_KEY` is set, or via `/model` in the dashboard). |
 
 ## Provider API keys (switch model/provider from the dashboard)
 
