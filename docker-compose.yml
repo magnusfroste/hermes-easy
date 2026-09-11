@@ -49,8 +49,21 @@ services:
       # the browser tool would re-download the whole set on first use. Left unset on
       # purpose; override only if you deliberately want them on the volume.
       - PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-}
-      # Default model (format: provider/model-name or just model-name for custom endpoints):
+      # --- Model and provider ---
+      # HERMES_MODEL is the BARE model name (gpt-5.6-luna), never provider/model: the
+      # prefix is sent to the endpoint verbatim and comes back as HTTP 404, or is looked
+      # up as a provider and fails with "Unknown provider". HERMES_PROVIDER is a slug from
+      # Hermes' own catalogue (79 of them; openai-api, anthropic, gemini, deepseek, xai,
+      # nous, ollama-cloud, router) or custom:<name> for an endpoint of your own. Note
+      # that the slug for the OpenAI API is `openai-api` — plain `openai` does not exist.
+      # The boot seed below writes both into config.yaml, which is the only place Hermes
+      # actually reads them from; see the comment there.
       - HERMES_MODEL=${HERMES_MODEL:-}
+      - HERMES_PROVIDER=${HERMES_PROVIDER:-}
+      # Leave empty. A catalogue provider brings its own endpoint, and the seed REMOVES
+      # model.base_url so the image's openrouter.ai default cannot linger and contradict
+      # the provider. Set it only for an endpoint the catalogue does not know.
+      - HERMES_MODEL_BASE_URL=${HERMES_MODEL_BASE_URL:-}
       # Custom OpenAI-compatible endpoint (e.g. a vLLM/Ollama box):
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -63,6 +76,11 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY:-}               # Groq
       - XAI_API_KEY=${XAI_API_KEY:-}                 # xAI Grok
       - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}         # Mistral
+      # Key for a private/on-premise endpoint. Passed through so a `providers:` entry can
+      # name it with `key_env: PRIVATE_LLM_API_KEY` — the key then stays in the Easypanel
+      # panel instead of being persisted in config.yaml on the volume. See env.md
+      # "Private AI". Useless without the matching entry; harmless when empty.
+      - PRIVATE_LLM_API_KEY=${PRIVATE_LLM_API_KEY:-}
       # --- Where the agent's own installs land ---
       # Without these, `npm install -g` and `uv tool install` write to /usr/local, i.e. the
       # container layer, and vanish on the next Redeploy. Pointing them at /opt/data/.local
@@ -105,6 +123,35 @@ services:
       - -c
       - |
         set -e
+        # --- Model and provider: config.yaml wins, so env must be written into it ---
+        # Measured 2026-09-11: HERMES_MODEL alone does NOTHING. tui_gateway/server.py:1423
+        # takes (model, provider) "by config.yaml -- and ONLY config", and
+        # hermes_cli/config.py:2989 states "a truthy configured model wins over
+        # HERMES_MODEL". The image ships model.default=anthropic/claude-opus-4.6 with
+        # base_url=https://openrouter.ai/api/v1, so two agents whose panels said
+        # openai/gpt-5.6-luna had both been running Claude through OpenRouter for a day --
+        # visible only on the agent that lacked an OPENROUTER_API_KEY, which failed with
+        # "payment / credit error" instead of failing loudly. Hence this block.
+        if [ -n "${HERMES_MODEL:-}" ] || [ -n "${HERMES_PROVIDER:-}" ]; then
+          case "$${HERMES_MODEL:-}" in
+            */*)
+              echo "[hermes-easy] WARNING: HERMES_MODEL='$$HERMES_MODEL' contains '/'. Use the bare model name and put the slug in HERMES_PROVIDER, e.g. HERMES_MODEL=gpt-5.6-luna + HERMES_PROVIDER=openai-api. A prefix gives HTTP 404 or \"Unknown provider\"." ;;
+          esac
+          if [ -n "${HERMES_PROVIDER:-}" ]; then
+            hermes config set model.provider "$$HERMES_PROVIDER" --force >/dev/null
+          fi
+          if [ -n "${HERMES_MODEL:-}" ]; then
+            hermes config set model.default "$$HERMES_MODEL" --force >/dev/null
+          fi
+          if [ -n "${HERMES_MODEL_BASE_URL:-}" ]; then
+            hermes config set model.base_url "$$HERMES_MODEL_BASE_URL" --force >/dev/null
+          else
+            # No collar, no container: `unset` on an absent key exits non-zero and set -e
+            # would kill the boot before `exec hermes gateway run`.
+            hermes config unset model.base_url >/dev/null 2>&1 || true
+          fi
+          echo "[hermes-easy] model -> $${HERMES_MODEL:-(unchanged)} via provider $${HERMES_PROVIDER:-(unchanged)}"
+        fi
         if [ -n "${SUPABASE_MCP_URL:-}" ] && [ -n "${SUPABASE_MCP_KEY:-}" ]; then
           hermes config set mcp_servers.supabase.url "$$SUPABASE_MCP_URL" --force >/dev/null
           hermes config set mcp_servers.supabase.headers.apikey '$${SUPABASE_MCP_KEY}' --force >/dev/null

@@ -24,7 +24,8 @@ login, and (for a shared-data fleet) the Supabase MCP trio:
 ```
 OPENAI_BASE_URL=https://api.example.com/v1   # your OpenAI-compatible endpoint, or drop both
 OPENAI_API_KEY=your-key                       # OPENAI_* lines and set e.g. OPENROUTER_API_KEY
-HERMES_MODEL=gpt-4o                           # bare model name; see env.md
+HERMES_MODEL=gpt-5.6-luna                     # BARE name, no provider/ prefix
+HERMES_PROVIDER=openai-api                    # catalogue slug; plain `openai` does not exist
 HERMES_DASHBOARD_BASIC_AUTH_USERNAME=alice
 HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=s3cret
 HERMES_DASHBOARD_BASIC_AUTH_SECRET=<openssl rand -hex 32>
