@@ -98,6 +98,17 @@ services:
       # lands on the data volume, Hermes resolves it from this environment at connect time.
       - SUPABASE_MCP_URL=${SUPABASE_MCP_URL:-}
       - SUPABASE_MCP_KEY=${SUPABASE_MCP_KEY:-}
+      # The caretaker's key, and only the caretaker's. When set, this agent ALSO gets
+      # Supabase's own MCP server -- raw SQL, migrations, bulk loading -- because that is
+      # what the systematic loader needs. Leave it empty on every other agent: as of
+      # 2026-09-12 the gateway answers an agent key with 403 on that endpoint, so a
+      # configured-but-forbidden server would produce a failing tool on every turn.
+      #
+      # Why agents lost it: raw SQL over MCP cannot be made traceable. An agent writing
+      # through it names its own owner, bypasses the ownership filter, and can create a
+      # table that never reaches the change log. All three measured. The capability moved
+      # to the key that can be accounted for rather than disappearing.
+      - SUPABASE_ADMIN_KEY=${SUPABASE_ADMIN_KEY:-}
       # Husets egna verktyg (supabase-easy: edge-funktionen `skillhub` bakom samma Kong-nyckel).
       # Tomt värde härleds från SUPABASE_MCP_URL: .../mcp -> .../skillhub. Sätt till "-" för
       # att stänga av. Servern ERSÄTTER inte Supabases MCP, den kompletterar den: execute_sql
@@ -153,11 +164,19 @@ services:
           echo "[hermes-easy] model -> $${HERMES_MODEL:-(unchanged)} via provider $${HERMES_PROVIDER:-(unchanged)}"
         fi
         if [ -n "${SUPABASE_MCP_URL:-}" ] && [ -n "${SUPABASE_MCP_KEY:-}" ]; then
-          hermes config set mcp_servers.supabase.url "$$SUPABASE_MCP_URL" --force >/dev/null
-          hermes config set mcp_servers.supabase.headers.apikey '$${SUPABASE_MCP_KEY}' --force >/dev/null
-          hermes config set mcp_servers.supabase.enabled true --force >/dev/null
-          hermes config set mcp_servers.supabase.timeout 120 --force >/dev/null
-          echo "[hermes-easy] mcp_servers.supabase -> $$SUPABASE_MCP_URL"
+          # Supabase's own MCP server (raw SQL) is configured ONLY for the caretaker, i.e.
+          # only when SUPABASE_ADMIN_KEY is set. Without it the entry is removed, so an
+          # ordinary agent does not carry a server that answers 403 on every call.
+          if [ -n "${SUPABASE_ADMIN_KEY:-}" ]; then
+            hermes config set mcp_servers.supabase.url "$$SUPABASE_MCP_URL" --force >/dev/null
+            hermes config set mcp_servers.supabase.headers.apikey '$${SUPABASE_ADMIN_KEY}' --force >/dev/null
+            hermes config set mcp_servers.supabase.enabled true --force >/dev/null
+            hermes config set mcp_servers.supabase.timeout 120 --force >/dev/null
+            echo "[hermes-easy] mcp_servers.supabase (ADMIN, raw SQL) -> $$SUPABASE_MCP_URL"
+          else
+            hermes config unset mcp_servers.supabase >/dev/null 2>&1 || true
+            echo "[hermes-easy] mcp_servers.supabase not configured: agent keys use /skillhub only"
+          fi
           # Servern hette `lager` fram till 2026-09-10. Ta bort den gamla posten, annars
           # ligger två servrar mot samma verktyg kvar i konfigurationen efter uppgraderingen.
           hermes config unset mcp_servers.lager >/dev/null 2>&1 || true
