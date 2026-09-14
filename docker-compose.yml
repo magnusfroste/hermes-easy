@@ -163,12 +163,19 @@ services:
           fi
           echo "[hermes-easy] model -> $${HERMES_MODEL:-(unchanged)} via provider $${HERMES_PROVIDER:-(unchanged)}"
         fi
-        if [ -n "${SUPABASE_MCP_URL:-}" ] && [ -n "${SUPABASE_MCP_KEY:-}" ]; then
+          # Either address variable is enough, and any spelling of it: the store's base URL, or the
+          # URL with /mcp or /skillhub on the end, with or without a trailing slash. Until 2026-09-14
+          # the block ran only when SUPABASE_MCP_URL was set -- a name from when every agent had the
+          # raw SQL door -- so SUPABASE_SKILLHUB_URL alone did nothing, /mcp had to be written for an
+          # agent that must never reach /mcp, and a trailing slash produced //skillhub.
+          if [ -n "${SUPABASE_MCP_URL:-}${SUPABASE_SKILLHUB_URL:-}" ] && [ -n "${SUPABASE_MCP_KEY:-}" ]; then
+            BASE="$${SUPABASE_SKILLHUB_URL:-$$SUPABASE_MCP_URL}"
+            BASE="$${BASE%/}"; BASE="$${BASE%/skillhub}"; BASE="$${BASE%/mcp}"; BASE="$${BASE%/}"
           # Supabase's own MCP server (raw SQL) is configured ONLY for the caretaker, i.e.
           # only when SUPABASE_ADMIN_KEY is set. Without it the entry is removed, so an
           # ordinary agent does not carry a server that answers 403 on every call.
           if [ -n "${SUPABASE_ADMIN_KEY:-}" ]; then
-            hermes config set mcp_servers.supabase.url "$$SUPABASE_MCP_URL" --force >/dev/null
+            hermes config set mcp_servers.supabase.url "$$BASE/mcp" --force >/dev/null
             hermes config set mcp_servers.supabase.headers.apikey '$${SUPABASE_ADMIN_KEY}' --force >/dev/null
             hermes config set mcp_servers.supabase.enabled true --force >/dev/null
             hermes config set mcp_servers.supabase.timeout 120 --force >/dev/null
@@ -180,7 +187,7 @@ services:
           # Servern hette `lager` fram till 2026-09-10. Ta bort den gamla posten, annars
           # ligger två servrar mot samma verktyg kvar i konfigurationen efter uppgraderingen.
           hermes config unset mcp_servers.lager >/dev/null 2>&1 || true
-          HUB="$${SUPABASE_SKILLHUB_URL:-$${SUPABASE_MCP_URL%/mcp}/skillhub}"
+          HUB="$$BASE/skillhub"
           if [ "$$HUB" != "-" ]; then
             hermes config set mcp_servers.skillhub.url "$$HUB" --force >/dev/null
             hermes config set mcp_servers.skillhub.headers.apikey '$${SUPABASE_MCP_KEY}' --force >/dev/null
