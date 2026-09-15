@@ -24,7 +24,7 @@ services:
       # lazy-installed packages (HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages) and
       # anything it pip/npm-installs into /opt/data/home. A bind mount inside the Easypanel
       # checkout survives a normal Deploy but not a re-clone or a service recreate, and it
-      # cannot be exported as a volume. Same rule as supabase-easy.
+      # cannot be exported as a volume. Same rule as skillhub.
       - data:/opt/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -109,7 +109,7 @@ services:
       # table that never reaches the change log. All three measured. The capability moved
       # to the key that can be accounted for rather than disappearing.
       - SUPABASE_ADMIN_KEY=${SUPABASE_ADMIN_KEY:-}
-      # Husets egna verktyg (supabase-easy: edge-funktionen `skillhub` bakom samma Kong-nyckel).
+      # Husets egna verktyg (skillhub: the edge function `skillhub` bakom samma Kong-nyckel).
       # Tomt värde härleds från SUPABASE_MCP_URL: .../mcp -> .../skillhub. Sätt till "-" för
       # att stänga av. Servern ERSÄTTER inte Supabases MCP, den kompletterar den: execute_sql
       # finns kvar för det som ska uppfinnas, verktygen för det som ska bli konsekvent.

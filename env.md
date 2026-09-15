@@ -138,7 +138,7 @@ Nothing else to manage: there are no host ports. The container's internal port i
 
 ## Supabase MCP (shared data for a fleet of agents)
 
-Pairs with [supabase-easy](https://github.com/magnusfroste/supabase-easy): Studio's MCP
+Pairs with [skillhub](https://github.com/magnusfroste/skillhub): Studio's MCP
 server behind Kong key-auth, one key per agent.
 
 | Variable | Example | Description |
