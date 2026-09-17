@@ -92,6 +92,13 @@ Two things are *not* on the volume, by design:
 - **Playwright browsers** ship inside the image (`/opt/hermes/.playwright`, ~266 MB), so
   they come back with every image. Do not repoint `PLAYWRIGHT_BROWSERS_PATH` at the data
   volume: that directory is empty and the browser tool would re-download the set.
+  **And do not pass it empty either** — an empty value overrides the image's own `ENV`, so
+  the browser tool scans `$HOME/.cache/ms-playwright` (here `/root/.cache`, which holds
+  nothing) and reports that there is no browser. This compose file therefore defaults the
+  variable to the image's path rather than to the empty string. Measured 2026-09-17: an
+  agent asked to log in to a website found no browser, downloaded a 293 MB Chrome of its own
+  into the volume, and still could not see it, while 266 MB of Chromium sat unused in the
+  image. Passing a variable as empty is not the same as not passing it.
 - **System packages installed with `apt` at runtime.** Those live in the container layer
   and reset on every redeploy, and the agent cannot install them anyway: it runs as the
   unprivileged `hermes` user and the image ships no `sudo`.

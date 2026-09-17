@@ -45,10 +45,15 @@ services:
       # default so an explicitly empty value stays empty.
       - HERMES_DASHBOARD_INSECURE=${HERMES_DASHBOARD_INSECURE-}
       # Playwright browsers are BAKED INTO THE IMAGE (/opt/hermes/.playwright, ~266 MB)
-      # since 2026. Do not repoint this at the data volume: that directory is empty, so
-      # the browser tool would re-download the whole set on first use. Left unset on
-      # purpose; override only if you deliberately want them on the volume.
-      - PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-}
+      # since 2026, and the image sets this variable to that path itself. Passing it EMPTY
+      # is not the same as not passing it: an empty value overrides the image's own ENV, and
+      # the browser tool then scans only $HOME/.cache/ms-playwright -- which is /root/.cache
+      # here and holds nothing. Measured 2026-09-17: an agent asked to log in to a site
+      # reported no browser, downloaded a 293 MB Chrome of its own into the data volume, and
+      # still could not see it, while 266 MB of Chromium sat unused in the image.
+      # So: default to the image's path. Repoint it only to put browsers on the volume
+      # deliberately, and keep it in step if a later image moves them.
+      - PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/opt/hermes/.playwright}
       # --- Model and provider ---
       # HERMES_MODEL is the BARE model name (gpt-5.6-luna), never provider/model: the
       # prefix is sent to the endpoint verbatim and comes back as HTTP 404, or is looked
