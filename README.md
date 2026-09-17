@@ -87,6 +87,27 @@ for itself (`HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages`, plus anything 
 under `/opt/data/home`). A **Redeploy keeps all of it** — the container is replaced, the
 volume is not.
 
+## What this image adds
+
+Built from the `Dockerfile` beside `docker-compose.yml`: upstream's image plus two things,
+because the shared data store asks an agent to read what it was handed and then publish what
+it says.
+
+- **`poppler-utils`** — `pdftotext`, `pdfinfo`, `pdftoppm`. Measured on a 159 KB quality
+  manual: 22,909 characters of text in about 90 milliseconds. Without it an agent asked to
+  put that manual in the store started OCR, spent minutes on it, and was interrupted — for a
+  document that was never scanned in the first place.
+- **`openpyxl`**, into `/opt/hermes/.venv`, which is the interpreter Hermes' own tools run
+  in. The store's loader takes CSV, so a spreadsheet has to be converted before it can be
+  handed over.
+
+Deliberately absent: `tesseract`. It is right for a scanned page and the wrong first
+instinct for everything else, it costs about 100 MB with its language data, and having it
+available is how an agent ends up running it on a PDF that already holds text. Add it the day
+a scanned document turns up.
+
+`HERMES_TAG` still chooses the base, and a Redeploy rebuilds on top of it.
+
 Two things are *not* on the volume, by design:
 
 - **Playwright browsers** ship inside the image (`/opt/hermes/.playwright`, ~266 MB), so

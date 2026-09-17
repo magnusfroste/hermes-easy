@@ -127,7 +127,7 @@ host fail with "port is already allocated" while Easypanel still reports success
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PULL_POLICY` | `always` | Every Easypanel **Redeploy** pulls the image first. `missing` reuses the cached one. |
+| `PULL_POLICY` | — | **Unused.** The image is built from the `Dockerfile`, and the base tag is re-resolved on every build by `pull: true`. |
 | `HERMES_TAG` | (empty = `latest`) | Docker Hub tag. `latest` is rebuilt from upstream `main` several times a week and is usually *ahead* of the newest GitHub release (on 2026-09-09: `latest` = v0.21.1 built that night, newest release tag `v2026.9.7`). Pin a `vYYYY.M.D` tag for reproducible redeploys. |
 
 ## Running multiple Hermes instances

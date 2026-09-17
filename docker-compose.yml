@@ -7,11 +7,21 @@
 #
 services:
   dashboard:
+    # Built from the Dockerfile beside this file: the upstream image plus poppler-utils and
+    # openpyxl, which is how an agent reads a PDF or a spreadsheet it was handed instead of
+    # improvising. Everything else about the image is upstream's.
+    #
     # `latest` is rebuilt from upstream main several times a week and is usually AHEAD of
     # the newest GitHub release. Pin HERMES_TAG=v2026.9.7 (a Docker Hub tag) when you
     # want every Redeploy to be reproducible; leave it unset to track main.
-    image: nousresearch/hermes-agent:${HERMES_TAG:-latest}
-    pull_policy: ${PULL_POLICY:-always}
+    build:
+      context: .
+      # Re-resolve the base tag against the registry on every build. Without it a rebuild
+      # can keep using a locally cached `latest`, so a Redeploy silently keeps the old
+      # Hermes version -- openclaw-easy carries the same line for the same reason.
+      pull: true
+      args:
+        HERMES_TAG: ${HERMES_TAG:-latest}
     restart: unless-stopped
     # Never publish a host port on an Easypanel host: Traefik routes the service's Domain
     # to the container port below, and a `ports:` binding makes a second instance fail
