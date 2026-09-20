@@ -14,6 +14,21 @@ Set these in Easypanel under the service's **Environment** tab. Values in `docke
 
 ### Why these go through config.yaml
 
+**A self-hosted endpoint serves the name IT chose, not the name the weights were published
+under.** Measured 2026-09-20: a local DGX cluster was added as `OPENAI_BASE_URL` and
+`HERMES_MODEL` was set to the repository slug of the weights,
+`local-inference-lab/GLM-5.3-Flash-NVFP4-Spark`, while vLLM served the same model as plain
+`glm-5.3-flash`. The agent started, reported `provider_configured: true`, and answered
+HTTP 404 to every call for a day. Ask the endpoint before guessing:
+
+```bash
+curl -sS "$OPENAI_BASE_URL/models" -H "authorization: Bearer $OPENAI_API_KEY"
+```
+
+Since then the boot seed asks for you whenever the endpoint is given by URL, and prints either
+`the endpoint serves '<name>'` or a warning listing the names it does serve. It is a warning,
+not a refusal: a model server can legitimately be asleep when the agent boots.
+
 `HERMES_MODEL` on its own does nothing. The active model is read from `config.yaml` and
 only from there — `tui_gateway/server.py:1423` takes `(model, provider)` "by config.yaml
 — and ONLY config", and `hermes_cli/config.py:2989` states that "a truthy configured

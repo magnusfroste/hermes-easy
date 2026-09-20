@@ -177,6 +177,37 @@ services:
             hermes config unset model.base_url >/dev/null 2>&1 || true
           fi
           echo "[hermes-easy] model -> $${HERMES_MODEL:-(unchanged)} via provider $${HERMES_PROVIDER:-(unchanged)}"
+
+          # Ask the endpoint whether it actually serves that name.
+          #
+          # Measured 2026-09-20: a local DGX cluster was added as OPENAI_BASE_URL and
+          # HERMES_MODEL was set to the repository slug the weights were published under --
+          # local-inference-lab/GLM-5.3-Flash-NVFP4-Spark -- while vLLM serves it as plain
+          # glm-5.3-flash. The warning above printed, scrolled past, and the agent came up
+          # reporting "provider_configured: true" and then answered HTTP 404 to every single
+          # call for a day. Configuration that looks right and fails on use is worse than
+          # configuration that refuses to start.
+          #
+          # Only for an endpoint given by URL -- the hosted catalogues resolve their own names,
+          # and this is where a guessed name actually happens. Never fatal: the endpoint may
+          # legitimately be down or asleep at boot, and a model server that is late is not a
+          # reason to refuse to run.
+          MODEL_URL="$${HERMES_MODEL_BASE_URL:-$${OPENAI_BASE_URL:-}}"
+          if [ -n "${HERMES_MODEL:-}" ] && [ -n "$$MODEL_URL" ] && command -v curl >/dev/null 2>&1; then
+            MODEL_KEY="$${OPENAI_API_KEY:-$${PRIVATE_LLM_API_KEY:-}}"
+            SERVED="$$(curl -sS -m 10 "$${MODEL_URL%/}/models" \
+                        $${MODEL_KEY:+-H "authorization: Bearer $$MODEL_KEY"} 2>/dev/null \
+                       | tr ',' '\n' | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+                       | grep -v '^modelperm-')"   # vLLM nests a permission id called "id" too
+            if [ -z "$$SERVED" ]; then
+              echo "[hermes-easy] NOTE: $${MODEL_URL%/}/models did not answer, so the model name is unverified. If every call returns 404, this is the first thing to check."
+            elif echo "$$SERVED" | grep -qxF "$$HERMES_MODEL"; then
+              echo "[hermes-easy] the endpoint serves '$$HERMES_MODEL'."
+            else
+              echo "[hermes-easy] WARNING: the endpoint does NOT serve '$$HERMES_MODEL'. Every call will answer HTTP 404. It serves: $$(echo "$$SERVED" | tr '\n' ' ')"
+              echo "[hermes-easy]          Set HERMES_MODEL to one of those names and redeploy."
+            fi
+          fi
         fi
           # Either address variable is enough, and any spelling of it: the store's base URL, or the
           # URL with /mcp or /skillhub on the end, with or without a trailing slash. Until 2026-09-14
