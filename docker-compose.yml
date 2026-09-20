@@ -80,16 +80,22 @@ services:
       # the provider. Set it only for an endpoint the catalogue does not know.
       - HERMES_MODEL_BASE_URL=${HERMES_MODEL_BASE_URL:-}
       # --- Endpoints you host yourself, as providers of their own ---
-      # id|Display Name|base_url|KEY_ENV_VAR[|transport], several separated by ';'.
-      #   HERMES_PROVIDERS=dgx|DGX Spark (home)|https://glm.example/v1|DGX_API_KEY
-      # Each becomes a providers: entry in config.yaml, resolved with its own transport, key
-      # variable and URL, overriding nothing -- so your box and the hosted providers are all
-      # loaded at boot and the person switches between them at runtime with /model. The key
-      # itself goes in the variable you name here; add it to this list too.
+      # id|Display Name|base_url|KEY_ENV_VAR[|api_mode], several separated by ';'.
+      #   HERMES_PROVIDERS=house|House endpoint|https://your-endpoint/v1|PRIVATE_LLM_API_KEY
+      # Each becomes a providers: entry in config.yaml, resolved with its own wire protocol,
+      # key variable and URL, overriding nothing -- so your box and the hosted providers are
+      # all loaded at boot and the person switches between them at runtime with /model.
+      #
+      # NAME IT FOR ITS ROLE, NOT ITS HARDWARE. The entry's id is what /model shows and what
+      # HERMES_PROVIDER selects, and the box behind it gets replaced: today a DGX serving GLM,
+      # next month vLLM or Unsloth serving something else. `house`, `private`, `onprem`,
+      # `lab` all age well; `dgx` and `glm` do not. Never the bare word `custom`: Hermes
+      # treats a stored bare "custom" as corrupt state from an old model-switch bug and
+      # self-heals it to the first entry it finds (providers.py:456).
+      #
       # Do NOT reach a private endpoint through OPENAI_BASE_URL or a catalogue provider's
       # base-URL variable: that redirects the real provider, and the boot seed says why.
       - HERMES_PROVIDERS=${HERMES_PROVIDERS:-}
-      - DGX_API_KEY=${DGX_API_KEY:-}                 # example: the key HERMES_PROVIDERS names
       # OpenAI itself. OPENAI_BASE_URL redirects the REAL OpenAI provider, so leave it empty
       # unless you mean exactly that -- a private box belongs in HERMES_PROVIDERS above.
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
@@ -163,9 +169,17 @@ services:
         set -e
         # --- Providers you host yourself, declared side by side with the hosted ones ---
         #
-        # HERMES_PROVIDERS=id|Display Name|base_url|KEY_ENV_VAR[|transport]
+        # HERMES_PROVIDERS=id|Display Name|base_url|KEY_ENV_VAR[|api_mode]
         # separated by ';' or newlines, e.g.
-        #   HERMES_PROVIDERS=dgx|DGX Spark (home)|https://glm.example/v1|DGX_API_KEY
+        #   HERMES_PROVIDERS=house|House endpoint|https://your-endpoint/v1|PRIVATE_LLM_API_KEY
+        #
+        # example.env has described this entry by hand since 2026-09-11, ending "until there is
+        # a real endpoint to test the seeding against, set it up once per agent". 2026-09-20
+        # brought one, so the seeding exists and this is it. Two things the hand-written recipe
+        # got wrong, both verified against the image: `model.provider` takes the entry's BARE key
+        # (resolve_provider_full tries providers.<raw name> first, and 'custom:house' resolves to
+        # None for a keyed entry -- the custom: form belongs to the legacy custom_providers LIST),
+        # and the field is `api_mode`, while the resolver also reads `transport`, so both go in.
         #
         # Why this exists. Hermes resolves (model, provider) through a catalogue, and the
         # hosted providers each own an environment variable for their base URL. So the two
@@ -200,22 +214,35 @@ services:
             P_NAME="$$(echo "$$REC" | cut -d'|' -f2)"
             P_URL="$$(echo "$$REC" | cut -d'|' -f3)"
             P_KEYV="$$(echo "$$REC" | cut -d'|' -f4)"
-            P_TR="$$(echo "$$REC" | cut -d'|' -f5)"
+            P_MODE="$$(echo "$$REC" | cut -d'|' -f5)"; P_MODE="$${P_MODE:-chat_completions}"
             if [ -z "$$P_ID" ] || [ -z "$$P_URL" ] || [ -z "$$P_KEYV" ]; then
               echo "[hermes-easy] WARNING: skipping provider record '$$REC' -- it needs at least id|name|base_url|KEY_ENV_VAR."
+              continue
+            fi
+            if [ "$$P_ID" = "custom" ]; then
+              echo "[hermes-easy] WARNING: skipping provider 'custom' -- Hermes treats a stored bare \"custom\" as corrupt state and self-heals it to the first entry it finds. Give the endpoint a name for its ROLE: house, private, onprem."
               continue
             fi
             hermes config set "providers.$$P_ID.name" "$${P_NAME:-$$P_ID}" --force >/dev/null
             hermes config set "providers.$$P_ID.base_url" "$$P_URL" --force >/dev/null
             hermes config set "providers.$$P_ID.key_env" "$$P_KEYV" --force >/dev/null
-            hermes config set "providers.$$P_ID.transport" "$${P_TR:-openai_chat}" --force >/dev/null
+            # api_mode is the wire protocol the runtime reads (chat_completions |
+            # anthropic_messages | codex_responses); transport is the same choice under the name
+            # the provider resolver reads. Written together so neither path has to guess.
+            hermes config set "providers.$$P_ID.api_mode" "$$P_MODE" --force >/dev/null
+            case "$$P_MODE" in
+              anthropic_messages) P_TR=anthropic_messages ;;
+              codex_responses)    P_TR=codex_responses ;;
+              *)                  P_TR=openai_chat ;;
+            esac
+            hermes config set "providers.$$P_ID.transport" "$$P_TR" --force >/dev/null
             # A provider whose key variable is empty is the failure that reads as "no usable
             # credentials" much later, in a session, with the provider's name and not the
             # variable's in the message. Say it here instead.
             if [ -z "$$(printenv "$$P_KEYV" 2>/dev/null)" ]; then
               echo "[hermes-easy] WARNING: provider '$$P_ID' reads its key from $$P_KEYV, which is empty. Sessions on it will fail with \"no usable credentials\"."
             else
-              echo "[hermes-easy] provider '$$P_ID' -> $$P_URL (key from $$P_KEYV, transport $${P_TR:-openai_chat})"
+              echo "[hermes-easy] provider '$$P_ID' -> $$P_URL (key from $$P_KEYV, $$P_MODE)"
             fi
           done
         fi

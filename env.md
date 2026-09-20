@@ -18,14 +18,26 @@ Set these in Easypanel under the service's **Environment** tab. Values in `docke
 
 | Variable | Example | Meaning |
 |---|---|---|
-| `HERMES_PROVIDERS` | `dgx\|DGX Spark (home)\|https://glm.example/v1\|DGX_API_KEY` | One record per endpoint: `id\|name\|base_url\|KEY_ENV_VAR[\|transport]`, several separated by `;`. |
-| the key variable you named | `DGX_API_KEY=sk-…` | Add it to the compose `environment:` list too, beside the example one. |
+| `HERMES_PROVIDERS` | `house\|House endpoint\|https://your-endpoint/v1\|PRIVATE_LLM_API_KEY` | One record per endpoint: `id\|name\|base_url\|KEY_ENV_VAR[\|api_mode]`, several separated by `;`. |
+| `PRIVATE_LLM_API_KEY` | `sk-…` | The key itself, in the variable the record names. Any variable name works; this one already exists here. |
 
 Each record becomes a `providers:` entry in `config.yaml`, which Hermes resolves as
-`source='user-config'` with its own transport, key variable and base URL, overriding nothing.
-So your own box and every hosted provider are loaded at boot and the person switches between
-them at runtime with `/model`. `transport` defaults to `openai_chat` (plain
-`/chat/completions`), which is what vLLM, Ollama and llama.cpp serve.
+`source='user-config'` with its own wire protocol, key variable and base URL, overriding
+nothing. So your own box and every hosted provider are loaded at boot and the person switches
+between them at runtime with `/model`. `api_mode` defaults to `chat_completions`, which is what
+vLLM, Ollama and llama.cpp serve; `anthropic_messages` and `codex_responses` are the others.
+
+**Name the entry for its role, not its hardware.** The id is what `/model` shows and what
+`HERMES_PROVIDER` selects, and the box behind it gets replaced -- today a DGX serving GLM, next
+month vLLM or Unsloth serving something else. `house`, `private`, `onprem` and `lab` age well;
+`dgx` and `glm` do not. The boot seed refuses the bare word `custom`: Hermes treats a stored
+bare `custom` as corrupt state from an old model-switch bug and self-heals it to the first entry
+it finds (`providers.py:456`).
+
+`model.provider` takes the entry's **bare** key -- `house`, not `custom:house`. Verified against
+the image 2026-09-20: `resolve_provider_full` tries `providers.<raw name>` first, and
+`custom:house` resolves to `None` for a keyed entry, because the `custom:` form addresses the
+legacy `custom_providers:` **list** instead. Earlier revisions of this file said otherwise.
 
 **Do not reach a private endpoint through another provider's variables.** Both shortcuts look
 like they work and then take something else away:
@@ -109,14 +121,17 @@ providers:
     api_mode: chat_completions
 model:
   default: your-model
-  provider: custom:house
+  provider: house            # the entry's bare key, not custom:house
 ```
 
-Use `custom:house`, never a bare `custom`: with the bare form the entry name is lost and
-the key has to be persisted in clear text in `config.yaml`
-(`runtime_provider_custom.py:220`). `key_env` names a variable instead, so the key stays
-in the Easypanel panel and never lands on the data volume — the same rule as
-`SUPABASE_MCP_KEY`. The aliases `ollama`, `vllm` and `llamacpp` also resolve to custom.
+Never a bare `custom`: with the bare form the entry name is lost and the key has to be
+persisted in clear text in `config.yaml` (`runtime_provider_custom.py:220`). `key_env` names a
+variable instead, so the key stays in the Easypanel panel and never lands on the data volume —
+the same rule as `SUPABASE_MCP_KEY`.
+
+`HERMES_PROVIDERS` writes this block for you at every boot, which is what the paragraph above
+describes; the hand-written form is here because it is what the entry looks like, and for an
+endpoint you want on one agent only.
 
 This is **not** seeded from env yet, deliberately: there is no private endpoint here to
 test the branch against, and untested boot-seed code is worse than a documented recipe.
