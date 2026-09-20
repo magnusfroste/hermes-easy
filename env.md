@@ -14,6 +14,38 @@ Set these in Easypanel under the service's **Environment** tab. Values in `docke
 
 ### Why these go through config.yaml
 
+### An endpoint you host is a provider of its own
+
+| Variable | Example | Meaning |
+|---|---|---|
+| `HERMES_PROVIDERS` | `dgx\|DGX Spark (home)\|https://glm.example/v1\|DGX_API_KEY` | One record per endpoint: `id\|name\|base_url\|KEY_ENV_VAR[\|transport]`, several separated by `;`. |
+| the key variable you named | `DGX_API_KEY=sk-…` | Add it to the compose `environment:` list too, beside the example one. |
+
+Each record becomes a `providers:` entry in `config.yaml`, which Hermes resolves as
+`source='user-config'` with its own transport, key variable and base URL, overriding nothing.
+So your own box and every hosted provider are loaded at boot and the person switches between
+them at runtime with `/model`. `transport` defaults to `openai_chat` (plain
+`/chat/completions`), which is what vLLM, Ollama and llama.cpp serve.
+
+**Do not reach a private endpoint through another provider's variables.** Both shortcuts look
+like they work and then take something else away:
+
+- `OPENAI_BASE_URL` redirects the **real** OpenAI provider. Measured 2026-09-20: a local DGX
+  cluster was wired in exactly this way with `OPENAI_API_KEY` holding the cluster's key. The
+  agent reached the cluster and could no longer reach OpenAI at all, with nothing saying so --
+  and switching model in `/model` would have sent `gpt-*` to a machine that has never heard
+  of it.
+- Borrowing the provider the catalogue infers from the model name is worse. A model served as
+  `glm-5.3-flash` resolves to provider `zai` whatever `HERMES_PROVIDER` says, and the session
+  dies with *"No usable credentials found for provider 'zai'. Set GLM_API_KEY, ZAI_API_KEY,
+  Z_AI_API_KEY"* -- for a model running on hardware in the next room. Setting `GLM_BASE_URL`
+  and `GLM_API_KEY` does work, and is still a lie: the day that box serves Qwen, the name
+  resolves somewhere else again.
+
+The boot seed prints one line per declared provider, and warns when the key variable a
+provider names is empty -- because that failure otherwise surfaces much later, inside a
+session, naming the provider and not the variable.
+
 **A self-hosted endpoint serves the name IT chose, not the name the weights were published
 under.** Measured 2026-09-20: a local DGX cluster was added as `OPENAI_BASE_URL` and
 `HERMES_MODEL` was set to the repository slug of the weights,

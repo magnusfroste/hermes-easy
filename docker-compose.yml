@@ -79,7 +79,19 @@ services:
       # model.base_url so the image's openrouter.ai default cannot linger and contradict
       # the provider. Set it only for an endpoint the catalogue does not know.
       - HERMES_MODEL_BASE_URL=${HERMES_MODEL_BASE_URL:-}
-      # Custom OpenAI-compatible endpoint (e.g. a vLLM/Ollama box):
+      # --- Endpoints you host yourself, as providers of their own ---
+      # id|Display Name|base_url|KEY_ENV_VAR[|transport], several separated by ';'.
+      #   HERMES_PROVIDERS=dgx|DGX Spark (home)|https://glm.example/v1|DGX_API_KEY
+      # Each becomes a providers: entry in config.yaml, resolved with its own transport, key
+      # variable and URL, overriding nothing -- so your box and the hosted providers are all
+      # loaded at boot and the person switches between them at runtime with /model. The key
+      # itself goes in the variable you name here; add it to this list too.
+      # Do NOT reach a private endpoint through OPENAI_BASE_URL or a catalogue provider's
+      # base-URL variable: that redirects the real provider, and the boot seed says why.
+      - HERMES_PROVIDERS=${HERMES_PROVIDERS:-}
+      - DGX_API_KEY=${DGX_API_KEY:-}                 # example: the key HERMES_PROVIDERS names
+      # OpenAI itself. OPENAI_BASE_URL redirects the REAL OpenAI provider, so leave it empty
+      # unless you mean exactly that -- a private box belongs in HERMES_PROVIDERS above.
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # Provider API keys — set any of these to switch model/provider in Hermes
@@ -149,6 +161,64 @@ services:
       - -c
       - |
         set -e
+        # --- Providers you host yourself, declared side by side with the hosted ones ---
+        #
+        # HERMES_PROVIDERS=id|Display Name|base_url|KEY_ENV_VAR[|transport]
+        # separated by ';' or newlines, e.g.
+        #   HERMES_PROVIDERS=dgx|DGX Spark (home)|https://glm.example/v1|DGX_API_KEY
+        #
+        # Why this exists. Hermes resolves (model, provider) through a catalogue, and the
+        # hosted providers each own an environment variable for their base URL. So the two
+        # obvious ways to reach your own endpoint both misfire:
+        #
+        #   * OPENAI_BASE_URL points the REAL OpenAI provider at your box. Measured
+        #     2026-09-20: a local DGX cluster was wired in this way, and OPENAI_API_KEY held
+        #     the cluster's key -- so the agent could reach the cluster and could no longer
+        #     reach OpenAI at all, with nothing saying so. Switching model in /model would
+        #     have sent gpt-* to a machine that has never heard of it.
+        #   * Borrowing the provider the catalogue infers from the model name is worse. A
+        #     model served as glm-5.3-flash resolves to provider 'zai' whatever HERMES_PROVIDER
+        #     says, and the session then dies with "No usable credentials found for provider
+        #     'zai'. Set GLM_API_KEY, ZAI_API_KEY, Z_AI_API_KEY" -- for a model running on
+        #     hardware in the next room. Setting GLM_BASE_URL and GLM_API_KEY does work, and
+        #     is still a lie: the day the same box serves Qwen, the name resolves elsewhere.
+        #
+        # Hermes has the honest mechanism already: a `providers:` entry in config.yaml is
+        # resolved as source='user-config' with its own transport, key variable and URL, and
+        # it overrides nothing. Verified against the image 2026-09-20:
+        #   ProviderDef(id='dgx', transport='openai_chat', api_key_env_vars=('DGX_KEY',),
+        #               base_url='https://glm.liteit.se/v1', source='user-config')
+        # This block is the env door onto it, so every provider -- yours and the hosted ones --
+        # is loaded at boot and the person switches between them at runtime with /model.
+        #
+        # Providers NOT named here are left alone: one added in the UI survives a redeploy.
+        if [ -n "${HERMES_PROVIDERS:-}" ]; then
+          echo "$$HERMES_PROVIDERS" | tr ';' '\n' | while IFS= read -r REC; do
+            REC="$$(echo "$$REC" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$$//')"
+            [ -n "$$REC" ] || continue
+            P_ID="$$(echo "$$REC" | cut -d'|' -f1)"
+            P_NAME="$$(echo "$$REC" | cut -d'|' -f2)"
+            P_URL="$$(echo "$$REC" | cut -d'|' -f3)"
+            P_KEYV="$$(echo "$$REC" | cut -d'|' -f4)"
+            P_TR="$$(echo "$$REC" | cut -d'|' -f5)"
+            if [ -z "$$P_ID" ] || [ -z "$$P_URL" ] || [ -z "$$P_KEYV" ]; then
+              echo "[hermes-easy] WARNING: skipping provider record '$$REC' -- it needs at least id|name|base_url|KEY_ENV_VAR."
+              continue
+            fi
+            hermes config set "providers.$$P_ID.name" "$${P_NAME:-$$P_ID}" --force >/dev/null
+            hermes config set "providers.$$P_ID.base_url" "$$P_URL" --force >/dev/null
+            hermes config set "providers.$$P_ID.key_env" "$$P_KEYV" --force >/dev/null
+            hermes config set "providers.$$P_ID.transport" "$${P_TR:-openai_chat}" --force >/dev/null
+            # A provider whose key variable is empty is the failure that reads as "no usable
+            # credentials" much later, in a session, with the provider's name and not the
+            # variable's in the message. Say it here instead.
+            if [ -z "$$(printenv "$$P_KEYV" 2>/dev/null)" ]; then
+              echo "[hermes-easy] WARNING: provider '$$P_ID' reads its key from $$P_KEYV, which is empty. Sessions on it will fail with \"no usable credentials\"."
+            else
+              echo "[hermes-easy] provider '$$P_ID' -> $$P_URL (key from $$P_KEYV, transport $${P_TR:-openai_chat})"
+            fi
+          done
+        fi
         # --- Model and provider: config.yaml wins, so env must be written into it ---
         # Measured 2026-09-11: HERMES_MODEL alone does NOTHING. tui_gateway/server.py:1423
         # takes (model, provider) "by config.yaml -- and ONLY config", and
@@ -192,9 +262,21 @@ services:
           # and this is where a guessed name actually happens. Never fatal: the endpoint may
           # legitimately be down or asleep at boot, and a model server that is late is not a
           # reason to refuse to run.
-          MODEL_URL="$${HERMES_MODEL_BASE_URL:-$${OPENAI_BASE_URL:-}}"
+          # Which endpoint to ask depends on which provider is selected: one declared in
+          # HERMES_PROVIDERS carries its own URL and key variable, and asking OPENAI_BASE_URL
+          # instead would check the wrong machine -- or, once OPENAI_BASE_URL is correctly left
+          # empty, no machine at all.
+          MODEL_URL="$${HERMES_MODEL_BASE_URL:-}"; MODEL_KEY=""
+          if [ -z "$$MODEL_URL" ] && [ -n "${HERMES_PROVIDER:-}" ] && [ -n "${HERMES_PROVIDERS:-}" ]; then
+            SEL="$$(echo "$$HERMES_PROVIDERS" | tr ';' '\n' | grep -E "^[[:space:]]*$$HERMES_PROVIDER\|" | head -1)"
+            if [ -n "$$SEL" ]; then
+              MODEL_URL="$$(echo "$$SEL" | cut -d'|' -f3)"
+              MODEL_KEY="$$(printenv "$$(echo "$$SEL" | cut -d'|' -f4)" 2>/dev/null || true)"
+            fi
+          fi
+          [ -n "$$MODEL_URL" ] || MODEL_URL="$${OPENAI_BASE_URL:-}"
           if [ -n "${HERMES_MODEL:-}" ] && [ -n "$$MODEL_URL" ] && command -v curl >/dev/null 2>&1; then
-            MODEL_KEY="$${OPENAI_API_KEY:-$${PRIVATE_LLM_API_KEY:-}}"
+            [ -n "$$MODEL_KEY" ] || MODEL_KEY="$${OPENAI_API_KEY:-$${PRIVATE_LLM_API_KEY:-}}"
             SERVED="$$(curl -sS -m 10 "$${MODEL_URL%/}/models" \
                         $${MODEL_KEY:+-H "authorization: Bearer $$MODEL_KEY"} 2>/dev/null \
                        | tr ',' '\n' | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
