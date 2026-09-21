@@ -222,10 +222,30 @@ mcp_servers:
 ```
 
 The key itself is never written to the volume; Hermes resolves `${SUPABASE_MCP_KEY}`
-from the container environment when it connects. `HERMES_AGENT_ID` appends one marked
-line to `SOUL.md` telling the agent its identifier and to read the shared
-`supabase-konventioner` skill before writing. Both are re-applied on every boot, so
-edit the env, not the files. Restrict tools by adding under the same block by hand:
+from the container environment when it connects.
+
+`HERMES_AGENT_ID` appends one marked block to `SOUL.md`: the agent's identifier, and the
+handful of house rules that have to arrive before the agent has read anything. It names tools
+explicitly, because with this many MCP tools Hermes pools them as *deferred* and the agent sees
+only names and about 60 truncated characters — a rule that says "follow the conventions" reaches
+nobody. What the block says, and why each line is there:
+
+- **Run `skillhub_overview` at the start of a session** — the one call that shows what exists.
+- **Search before you ANSWER from that data** — a colleague may have written down how it has to
+  be read, and reading it wrong yields a confident wrong number rather than an error.
+- **Search before you RESEARCH anything, whatever the subject.** Added 2026-09-21 after watching
+  the first agent on a client install research an ERP system from scratch: it deliberated five
+  times over whether the answer-rule applied to a web-research task, concluded "do it anyway to
+  follow convention", and ran `skillhub_overview` twice on the way. The reason that actually
+  applies to research — somebody may have done this last week — was in none of the rules it had.
+- **Anything worth keeping goes INTO the store, not into a file in your workspace.** Same
+  session: the agent's plan was "save the report to a file in the workspace… I might also save a
+  note to skillhub". The store was the afterthought and the container's filesystem was the
+  default, which is exactly backwards — that filesystem is gone at the next restart.
+- **Run `skillhub_rules` before writing** — the rules decide table, note or skill.
+- **Read whole objects with `skillhub_read`**, not from a search excerpt.
+
+Both the MCP block and this one are re-applied on every boot, so edit the env, not the files. Restrict tools by adding under the same block by hand:
 
 ```yaml
     tools:
