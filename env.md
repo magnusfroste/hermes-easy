@@ -8,8 +8,8 @@ Set these in Easypanel under the service's **Environment** tab. Values in `docke
 |----------|---------|-------------|
 | `OPENAI_BASE_URL` | `https://api.example.com/v1` | OpenAI-compatible endpoint |
 | `OPENAI_API_KEY` | `sk-...` or `dummy` | API key (must be set even if the endpoint doesn't require auth) |
-| `HERMES_MODEL` | `gpt-5.6-luna` | Default model, **bare name**. Written into `config.yaml` by the boot seed. |
-| `HERMES_PROVIDER` | `openai-api` | Provider slug from Hermes' catalogue. Written into `config.yaml` by the boot seed. |
+| `HERMES_MODEL` | `openai-api/gpt-5.6-luna` | `provider/model`: the prefix is an id from `HERMES_PROVIDERS` or a catalogue slug, and the seed splits it. A bare name works with `HERMES_PROVIDER` beside it. Written into `config.yaml` by the boot seed. |
+| `HERMES_PROVIDER` | *(empty)* | Only for the bare-name spelling of `HERMES_MODEL`. With it set, a `/` in the model is part of the model id (a Hub path such as `unsloth/…`). |
 | `HERMES_MODEL_BASE_URL` | *(empty)* | Only for an endpoint the catalogue does not know. Empty makes the seed **remove** `model.base_url`. |
 
 ### Why these go through config.yaml

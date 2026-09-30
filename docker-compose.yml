@@ -65,14 +65,14 @@ services:
       # deliberately, and keep it in step if a later image moves them.
       - PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/opt/hermes/.playwright}
       # --- Model and provider ---
-      # HERMES_MODEL is the BARE model name (gpt-5.6-luna), never provider/model: the
-      # prefix is sent to the endpoint verbatim and comes back as HTTP 404, or is looked
-      # up as a provider and fails with "Unknown provider". HERMES_PROVIDER is a slug from
-      # Hermes' own catalogue (79 of them; openai-api, anthropic, gemini, deepseek, xai,
-      # nous, ollama-cloud, router) or custom:<name> for an endpoint of your own. Note
-      # that the slug for the OpenAI API is `openai-api` — plain `openai` does not exist.
-      # The boot seed below writes both into config.yaml, which is the only place Hermes
-      # actually reads them from; see the comment there.
+      # HERMES_MODEL=provider/model is the whole setting: the prefix names the provider --
+      # an id from HERMES_PROVIDERS below (house/glm-5.3-flash) or a slug from Hermes' own
+      # catalogue (openai-api/gpt-5.6-luna; note that the OpenAI API is `openai-api`, plain
+      # `openai` does not exist) -- and the seed splits it. HERMES_PROVIDER is then not
+      # needed. The older spelling, a bare model name plus HERMES_PROVIDER, still works.
+      # Never rely on Hermes guessing the provider from the model name: glm-5.3-flash on
+      # your own box resolves to Z.ai and asks for a Z.ai key. Say whose model it is.
+      # The boot seed writes both into config.yaml, the only place Hermes reads them.
       - HERMES_MODEL=${HERMES_MODEL:-}
       - HERMES_PROVIDER=${HERMES_PROVIDER:-}
       # Leave empty. A catalogue provider brings its own endpoint, and the seed REMOVES
@@ -256,14 +256,33 @@ services:
         # visible only on the agent that lacked an OPENROUTER_API_KEY, which failed with
         # "payment / credit error" instead of failing loudly. Hence this block.
         if [ -n "${HERMES_MODEL:-}" ] || [ -n "${HERMES_PROVIDER:-}" ]; then
-          case "$${HERMES_MODEL:-}" in
+          # provider/model, the way a control panel names it (2026-09-30): the prefix is the
+          # provider and the rest is the model, so one variable says whose model it is and
+          # HERMES_PROVIDER can stay empty. A model id may itself contain a slash (a Hub path
+          # such as unsloth/Qwen3-Next-GGUF served under a provider named unsloth), so the
+          # split is only made when the prefix is not already accounted for: with
+          # HERMES_PROVIDER set to something else, the slash is part of the model id. The
+          # /models probe further down settles the rest -- if the endpoint serves the unsplit
+          # name and not the split one, the unsplit one is written back.
+          RAW_MODEL="$${HERMES_MODEL:-}"
+          case "$$RAW_MODEL" in
             */*)
-              echo "[hermes-easy] WARNING: HERMES_MODEL='$$HERMES_MODEL' contains '/'. Use the bare model name and put the slug in HERMES_PROVIDER, e.g. HERMES_MODEL=gpt-5.6-luna + HERMES_PROVIDER=openai-api. A prefix gives HTTP 404 or \"Unknown provider\"." ;;
+              PREFIX="$${RAW_MODEL%%/*}"; REST="$${RAW_MODEL#*/}"
+              if [ -z "$${HERMES_PROVIDER:-}" ] || [ "$$PREFIX" = "$${HERMES_PROVIDER:-}" ]; then
+                HERMES_PROVIDER="$$PREFIX"; HERMES_MODEL="$$REST"
+                if echo "$${HERMES_PROVIDERS:-}" | tr ';' '\n' | grep -qE "^[[:space:]]*$$PREFIX\|"; then
+                  echo "[hermes-easy] HERMES_MODEL '$$RAW_MODEL': provider '$$PREFIX' (from HERMES_PROVIDERS), model '$$REST'."
+                else
+                  echo "[hermes-easy] HERMES_MODEL '$$RAW_MODEL': provider '$$PREFIX' (a catalogue slug -- a wrong one fails at start with \"Unknown provider\"), model '$$REST'."
+                fi
+              else
+                echo "[hermes-easy] HERMES_MODEL '$$RAW_MODEL' keeps its '/': HERMES_PROVIDER='$$HERMES_PROVIDER' is set, so the slash is part of the model id."
+              fi ;;
           esac
-          if [ -n "${HERMES_PROVIDER:-}" ]; then
+          if [ -n "$${HERMES_PROVIDER:-}" ]; then
             hermes config set model.provider "$$HERMES_PROVIDER" --force >/dev/null
           fi
-          if [ -n "${HERMES_MODEL:-}" ]; then
+          if [ -n "$${HERMES_MODEL:-}" ]; then
             hermes config set model.default "$$HERMES_MODEL" --force >/dev/null
           fi
           if [ -n "${HERMES_MODEL_BASE_URL:-}" ]; then
@@ -294,7 +313,7 @@ services:
           # instead would check the wrong machine -- or, once OPENAI_BASE_URL is correctly left
           # empty, no machine at all.
           MODEL_URL="$${HERMES_MODEL_BASE_URL:-}"; MODEL_KEY=""
-          if [ -z "$$MODEL_URL" ] && [ -n "${HERMES_PROVIDER:-}" ] && [ -n "${HERMES_PROVIDERS:-}" ]; then
+          if [ -z "$$MODEL_URL" ] && [ -n "$${HERMES_PROVIDER:-}" ] && [ -n "${HERMES_PROVIDERS:-}" ]; then
             SEL="$$(echo "$$HERMES_PROVIDERS" | tr ';' '\n' | grep -E "^[[:space:]]*$$HERMES_PROVIDER\|" | head -1)"
             if [ -n "$$SEL" ]; then
               MODEL_URL="$$(echo "$$SEL" | cut -d'|' -f3)"
@@ -302,7 +321,7 @@ services:
             fi
           fi
           [ -n "$$MODEL_URL" ] || MODEL_URL="$${OPENAI_BASE_URL:-}"
-          if [ -n "${HERMES_MODEL:-}" ] && [ -n "$$MODEL_URL" ] && command -v curl >/dev/null 2>&1; then
+          if [ -n "$${HERMES_MODEL:-}" ] && [ -n "$$MODEL_URL" ] && command -v curl >/dev/null 2>&1; then
             [ -n "$$MODEL_KEY" ] || MODEL_KEY="$${OPENAI_API_KEY:-$${PRIVATE_LLM_API_KEY:-}}"
             SERVED="$$(curl -sS -m 10 "$${MODEL_URL%/}/models" \
                         $${MODEL_KEY:+-H "authorization: Bearer $$MODEL_KEY"} 2>/dev/null \
@@ -312,6 +331,10 @@ services:
               echo "[hermes-easy] NOTE: $${MODEL_URL%/}/models did not answer, so the model name is unverified. If every call returns 404, this is the first thing to check."
             elif echo "$$SERVED" | grep -qxF "$$HERMES_MODEL"; then
               echo "[hermes-easy] the endpoint serves '$$HERMES_MODEL'."
+            elif [ "$$RAW_MODEL" != "$$HERMES_MODEL" ] && echo "$$SERVED" | grep -qxF "$$RAW_MODEL"; then
+              # The slash was part of the model id after all; the endpoint knows the full name.
+              hermes config set model.default "$$RAW_MODEL" --force >/dev/null
+              echo "[hermes-easy] the endpoint serves '$$RAW_MODEL', not '$$HERMES_MODEL': the full name is kept as the model."
             else
               echo "[hermes-easy] WARNING: the endpoint does NOT serve '$$HERMES_MODEL'. Every call will answer HTTP 404. It serves: $$(echo "$$SERVED" | tr '\n' ' ')"
               echo "[hermes-easy]          Set HERMES_MODEL to one of those names and redeploy."
