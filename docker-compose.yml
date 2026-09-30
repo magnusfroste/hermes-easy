@@ -194,6 +194,15 @@ services:
             printf '%s=%s\n' "$$KV" "$$(printenv "$$KV")" >> "$$SECRETS_FILE"
           fi
         done
+        # And every variable config.yaml itself refers to as $${NAME} -- a server somebody
+        # added by hand with a placeholder URL or header (a caretaker's $${ODOO_URL}/mcp was
+        # the case) -- so a reference in the config never stays literal in a session because
+        # its name did not fit the pattern above.
+        for KV in $$(grep -oE '\$$\{[A-Za-z_][A-Za-z0-9_]*\}' "$$HOME/config.yaml" 2>/dev/null | tr -d '$${}' | sort -u); do
+          if [ -n "$$(printenv "$$KV" 2>/dev/null)" ] && ! grep -qE "^$$KV=" "$$SECRETS_FILE"; then
+            printf '%s=%s\n' "$$KV" "$$(printenv "$$KV")" >> "$$SECRETS_FILE"
+          fi
+        done
         hermes config set secrets.command.enabled true --force >/dev/null
         hermes config set secrets.command.command "cat $$SECRETS_FILE" --force >/dev/null
         hermes config set secrets.command.override_existing true --force >/dev/null
