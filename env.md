@@ -192,6 +192,18 @@ host fail with "port is already allocated" while Easypanel still reports success
 | `PULL_POLICY` | — | **Unused.** The image is built from the `Dockerfile`, and the base tag is re-resolved on every build by `pull: true`. |
 | `HERMES_TAG` | (empty = `latest`) | Docker Hub tag. `latest` is rebuilt from upstream `main` several times a week and is usually *ahead* of the newest GitHub release (on 2026-09-09: `latest` = v0.21.1 built that night, newest release tag `v2026.9.7`). Pin a `vYYYY.M.D` tag for reproducible redeploys. |
 
+## How a session sees the keys (Hermes 2026.9.24 and later)
+
+The gateway multiplexes profiles and reads a profile's secrets through a scope built from
+`<home>/.env` and configured secret sources -- never from the container's environment. The
+boot seed therefore writes the keys it manages to `/dev/shm/hermes-easy.env` (tmpfs: in memory,
+gone with the container, never on the data volume) and configures Hermes' `secrets.command`
+source to read it. Nothing to set; it is why `SUPABASE_MCP_KEY`, `SUPABASE_ADMIN_KEY`,
+`PRIVATE_LLM_API_KEY` and the `*_API_KEY` variables work inside a session. The boot log line
+`secrets for sessions: N value(s)` says how many keys went in. Without this, the symptom is an
+MCP server that answers 401 in every session while the same key works from a shell, and a
+private endpoint whose key reads as "empty/unset".
+
 ## Persistence
 
 All state lives in the named volume mounted at `/opt/data`: `config.yaml`, `SOUL.md`, sessions,

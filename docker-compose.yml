@@ -167,6 +167,37 @@ services:
       - -c
       - |
         set -e
+        # --- Secrets the turns can actually see (Hermes >= 2026.9.24) ---
+        #
+        # Measured 2026-09-30 on the image dated 2026.9.24: the gateway multiplexes profiles
+        # (there is no opt-out), and a profile's secrets are then read through a SCOPE built
+        # from <home>/.env plus the configured secret sources -- never from the process
+        # environment, by design (one profile must not see another's keys). So every key this
+        # file hands over as an environment variable was invisible in a session: the MCP
+        # header stayed the literal text "$${SUPABASE_MCP_KEY}" (Kong: 401), the private
+        # endpoint's key_env read as "empty/unset". Outside a session, and for every earlier
+        # image, the same variables resolved fine, which is why it looked like a key problem.
+        #
+        # Hermes' own answer is a `secrets.command` source: a helper that prints KEY=VALUE
+        # lines, hydrated into the scope. The helper reads a file this seed writes on tmpfs
+        # (/dev/shm: in memory, gone with the container, never on the data volume), so the
+        # environment panel stays the only place a key lives at rest. The file holds the
+        # keys the seed manages, every *_API_KEY/_KEY/_TOKEN/_SECRET/_BASE_URL, and each key
+        # variable named in HERMES_PROVIDERS. override_existing: a value rotated in the panel
+        # wins over a stale line somebody once put in .env by hand.
+        SECRETS_FILE=/dev/shm/hermes-easy.env
+        ( umask 077; : > "$$SECRETS_FILE" )
+        printenv | grep -E '^(SUPABASE_MCP_KEY|SUPABASE_ADMIN_KEY|PRIVATE_LLM_API_KEY|[A-Z0-9_]+_(API_KEY|KEY|TOKEN|SECRET|BASE_URL))=' \
+          | grep -vE '^(HERMES_SECRET_KEY|HERMES_DASHBOARD_BASIC_AUTH_SECRET)=' | grep -vE '=$$' >> "$$SECRETS_FILE" || true
+        for KV in $$(echo "$${HERMES_PROVIDERS:-}" | tr ';' '\n' | cut -d'|' -f4); do
+          if [ -n "$$KV" ] && [ -n "$$(printenv "$$KV" 2>/dev/null)" ] && ! grep -qE "^$$KV=" "$$SECRETS_FILE"; then
+            printf '%s=%s\n' "$$KV" "$$(printenv "$$KV")" >> "$$SECRETS_FILE"
+          fi
+        done
+        hermes config set secrets.command.enabled true --force >/dev/null
+        hermes config set secrets.command.command "cat $$SECRETS_FILE" --force >/dev/null
+        hermes config set secrets.command.override_existing true --force >/dev/null
+        echo "[hermes-easy] secrets for sessions: $$(grep -c . "$$SECRETS_FILE") value(s) in $$SECRETS_FILE (tmpfs, never on the volume)"
         # --- Providers you host yourself, declared side by side with the hosted ones ---
         #
         # HERMES_PROVIDERS=id|Display Name|base_url|KEY_ENV_VAR[|api_mode]
@@ -418,6 +449,18 @@ services:
             printf -- '- Every write goes through a tool. You have no raw SQL against this store, and you do not need any: the tools attach the change log and take your identity from the gateway, which is what makes the store worth trusting.\n<!-- hermes-easy:agent-id end -->\n' >> "$$S"
           fi
           echo "[hermes-easy] SOUL.md identity -> $$HERMES_AGENT_ID"
+        fi
+        # On the image dated 2026.9.24 the gateway and the dashboard are s6-supervised services
+        # started by the image's own boot BEFORE this seed runs, and a process hydrates its
+        # secret sources once. Restart both so they come up on the config and the secrets file
+        # written above; on an older image neither service exists and the exec below IS the
+        # gateway, started after the seed as always.
+        if command -v s6-svc >/dev/null 2>&1 && [ -d /run/service/gateway-default ]; then
+          for SVC in gateway-default dashboard; do
+            if [ -d "/run/service/$$SVC" ] && s6-svc -r "/run/service/$$SVC" 2>/dev/null; then
+              echo "[hermes-easy] restarted supervised service $$SVC so it reads the seeded config and secrets"
+            fi
+          done
         fi
         exec hermes gateway run
 
