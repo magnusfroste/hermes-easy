@@ -192,6 +192,26 @@ host fail with "port is already allocated" while Easypanel still reports success
 | `PULL_POLICY` | — | **Unused.** The image is built from the `Dockerfile`, and the base tag is re-resolved on every build by `pull: true`. |
 | `HERMES_TAG` | (empty = `latest`) | Docker Hub tag. `latest` is rebuilt from upstream `main` several times a week and is usually *ahead* of the newest GitHub release (on 2026-09-09: `latest` = v0.21.1 built that night, newest release tag `v2026.9.7`). Pin a `vYYYY.M.D` tag for reproducible redeploys. |
 
+## Persistence
+
+All state lives in the named volume mounted at `/opt/data`: `config.yaml`, `SOUL.md`, sessions,
+memories, skills, cron, and the packages the agent installs itself. A Redeploy keeps it. Durable
+*system* packages (apt) do not survive a redeploy; those belong in the Dockerfile.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `NPM_CONFIG_PREFIX` | `/opt/data/.local` | Where the agent's own `npm install -g` lands: on the volume, on PATH. |
+| `UV_TOOL_DIR` / `UV_TOOL_BIN_DIR` | `/opt/data/.local/uv-tools`, `/opt/data/.local/bin` | Same for `uv tool install`. |
+| `PLAYWRIGHT_BROWSERS_PATH` | image default | Leave unset. The image ships Chromium and points this at it; an empty value would leave the browser tool looking in an empty directory. |
+| `HERMES_UID` / `HERMES_GID` | `10000` | The runtime user. |
+
+Variables that older versions of `example.env` listed and the seed still honours:
+`HERMES_PROVIDER` (the bare-name spelling of the model), `HERMES_MODEL_BASE_URL` (an endpoint
+the catalogue does not know; empty removes `model.base_url`), `OPENAI_BASE_URL` (repoints the
+*real* OpenAI provider -- a private box belongs in `HERMES_PROVIDERS` instead),
+`HERMES_DASHBOARD_INSECURE` (images older than 2026.9 only), `SUPABASE_SKILLHUB_URL` (alias of
+`SUPABASE_MCP_URL`; `-` disables the skillhub server).
+
 ## Running multiple Hermes instances
 
 One Easypanel service per Hermes (separate `data` volume), each with its own Domain.
