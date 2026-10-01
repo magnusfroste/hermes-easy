@@ -38,6 +38,17 @@ services:
       - data:/opt/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Everything typed into the Easypanel Environment panel lands in a .env file beside this
+    # compose file. Only the variables listed under environment: used to reach the container,
+    # so a server somebody configured with its own placeholders (a caretaker's Odoo MCP with
+    # $${ODOO_URL} and $${ODOO_API_KEY}, 2026-10-01) read as empty however carefully the panel
+    # was filled in. Loading that file hands every panel variable to the container; the seed
+    # then exports the ones config.yaml refers to into the secrets file sessions read. The
+    # explicit list below still wins for the same name. Optional, so a plain `docker compose`
+    # run without a .env still starts.
+    env_file:
+      - path: .env
+        required: false
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}

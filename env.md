@@ -204,6 +204,14 @@ source to read it. Nothing to set; it is why `SUPABASE_MCP_KEY`, `SUPABASE_ADMIN
 MCP server that answers 401 in every session while the same key works from a shell, and a
 private endpoint whose key reads as "empty/unset".
 
+## Your own variables reach the container
+
+Every variable in the Easypanel Environment panel is passed to the container (the compose file
+loads the panel's `.env`), not only the ones this documentation names. So an MCP server you add
+by hand may refer to `${ODOO_URL}` and `${ODOO_API_KEY}` in `config.yaml`, and setting those two
+in the panel is enough: the boot seed sees the references and exports them into the secrets
+file sessions read (previous section).
+
 ## Persistence
 
 All state lives in the named volume mounted at `/opt/data`: `config.yaml`, `SOUL.md`, sessions,
