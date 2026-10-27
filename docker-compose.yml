@@ -11,9 +11,10 @@ services:
     # openpyxl, which is how an agent reads a PDF or a spreadsheet it was handed instead of
     # improvising. Everything else about the image is upstream's.
     #
-    # `latest` is rebuilt from upstream main several times a week and is usually AHEAD of
-    # the newest GitHub release. Pin HERMES_TAG=v2026.9.7 (a Docker Hub tag) when you
-    # want every Redeploy to be reproducible; leave it unset to track main.
+    # Since v0.22.0 upstream moves `latest` (and `stable`) only when a release is cut, so
+    # leaving HERMES_TAG unset tracks the newest release, not main. Pin a Docker Hub tag
+    # (e.g. HERMES_TAG=v0.22.5) when every Redeploy must give the same image even after
+    # the next release.
     build:
       context: .
       # Re-resolve the base tag against the registry on every build. Without it a rebuild
@@ -28,6 +29,19 @@ services:
     # with "port is already allocated" while Easypanel still reports success.
     expose:
       - "9119"
+    # Docker's default /dev/shm is 64 MB, and Chromium (the browser tool) uses it for its
+    # renderer memory: a page heavier than that crashes the tab ("Aw, Snap" / target
+    # closed) rather than failing with a message about memory.
+    shm_size: 1gb
+    # /api/health is open without a login and answers {"ok":true,...} once the dashboard is
+    # up. It checks the dashboard process only, not the gateway or the model endpoint. The
+    # start period covers the boot seed and the s6 restarts it triggers.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-m", "5", "http://127.0.0.1:9119/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
     volumes:
       # Named volume, not ./data. Everything Hermes owns lives in /opt/data (HERMES_HOME):
       # config.yaml, SOUL.md, sessions, memories, skills, cron, the agent's own
@@ -55,37 +69,49 @@ services:
       - HERMES_DASHBOARD=1
       # --- Dashboard auth ---
       # Since Hermes v0.21 (2026.9) the dashboard refuses to bind on 0.0.0.0 without an
-      # auth provider; HERMES_DASHBOARD_INSECURE no longer disables the gate on a
-      # non-loopback bind. Set all three BASIC_AUTH vars. The container fails closed
-      # without them — that is the intended behaviour on an internet-facing host.
+      # auth provider (HERMES_DASHBOARD_INSECURE is a no-op upstream now, so it is no longer
+      # passed). Set the username, a password (plaintext or hash) and the secret. The
+      # container fails closed without them — the intended behaviour on an internet-facing
+      # host.
       - HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:-}
       - HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}
+      # Alternative to the plaintext password above, so the panel never holds it in clear.
+      # Leave the plaintext one EMPTY when using it: a plaintext password from env wins.
+      # Compute it in the container: python3 -c "from plugins.dashboard_auth.basic import
+      # hash_password; print(hash_password('s3cret'))" (from /opt/hermes).
+      - HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH=${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH:-}
       # A random string that makes sessions survive container restarts:
       - HERMES_DASHBOARD_BASIC_AUTH_SECRET=${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}
-      # Kept for images older than 2026.9 only; ignored by current ones. Single-dash
-      # default so an explicitly empty value stays empty.
-      - HERMES_DASHBOARD_INSECURE=${HERMES_DASHBOARD_INSECURE-}
-      # Playwright browsers are BAKED INTO THE IMAGE (/opt/hermes/.playwright, ~266 MB)
-      # since 2026, and the image sets this variable to that path itself. Passing it EMPTY
-      # is not the same as not passing it: an empty value overrides the image's own ENV, and
-      # the browser tool then scans only $HOME/.cache/ms-playwright -- which is /root/.cache
-      # here and holds nothing. Measured 2026-09-17: an agent asked to log in to a site
-      # reported no browser, downloaded a 293 MB Chrome of its own into the data volume, and
-      # still could not see it, while 266 MB of Chromium sat unused in the image.
-      # So: default to the image's path. Repoint it only to put browsers on the volume
-      # deliberately, and keep it in step if a later image moves them.
-      - PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/opt/hermes/.playwright}
+      # The Domain the dashboard is reached at (https://hermes.example.com), so login
+      # redirects and cookie paths are built for it rather than for the container address.
+      # Blank counts as unset upstream.
+      - HERMES_DASHBOARD_PUBLIC_URL=${HERMES_DASHBOARD_PUBLIC_URL:-}
+      # PLAYWRIGHT_BROWSERS_PATH is deliberately NOT listed: the image sets it to where it
+      # put Chromium (/opt/hermes/tools on v0.22), and that path has moved before. Until
+      # 2026-10 this file defaulted it to /opt/hermes/.playwright, which no longer exists, so
+      # the browser tool looked in an empty directory. Set it in the panel only to put
+      # browsers somewhere deliberate; an EMPTY value is not the same as unset and breaks it.
       # --- Model and provider ---
-      # HERMES_MODEL=provider/model is the whole setting: the prefix names the provider --
-      # an id from HERMES_PROVIDERS below (house/glm-5.3-flash) or a slug from Hermes' own
+      # HERMES_EASY_MODEL=provider/model is the whole setting: the prefix names the provider
+      # -- an id from HERMES_PROVIDERS below (house/glm-5.3-flash) or a slug from Hermes' own
       # catalogue (openai-api/gpt-5.6-luna; note that the OpenAI API is `openai-api`, plain
-      # `openai` does not exist) -- and the seed splits it. HERMES_PROVIDER is then not
-      # needed. The older spelling, a bare model name plus HERMES_PROVIDER, still works.
+      # `openai` does not exist) -- and the seed splits it. HERMES_EASY_PROVIDER is then not
+      # needed. The older spelling, a bare model name plus HERMES_EASY_PROVIDER, still works.
       # Never rely on Hermes guessing the provider from the model name: glm-5.3-flash on
       # your own box resolves to Z.ai and asks for a Z.ai key. Say whose model it is.
       # The boot seed writes both into config.yaml, the only place Hermes reads them.
-      - HERMES_MODEL=${HERMES_MODEL:-}
-      - HERMES_PROVIDER=${HERMES_PROVIDER:-}
+      #
+      # Why not HERMES_MODEL any more (2026-10): that name is Hermes' own. The TUI, cron and
+      # ACP read it as a startup model, and resolve_startup_model_route splits "X/Y" when X
+      # is a key under providers: -- so HERMES_MODEL=house/garageai/auto, or a served name
+      # like garageai/auto next to a provider called garageai, became model=auto there while
+      # config.yaml said otherwise (upstream #123997, #118153). The panel names below are read
+      # by the seed only. The old names still work as a fallback, but are BLANKED here: the
+      # env_file above would otherwise hand them to the container unchanged.
+      - HERMES_EASY_MODEL=${HERMES_EASY_MODEL:-${HERMES_MODEL:-}}
+      - HERMES_EASY_PROVIDER=${HERMES_EASY_PROVIDER:-${HERMES_PROVIDER:-}}
+      - HERMES_MODEL=
+      - HERMES_PROVIDER=
       # Leave empty. A catalogue provider brings its own endpoint, and the seed REMOVES
       # model.base_url so the image's openrouter.ai default cannot linger and contradict
       # the provider. Set it only for an endpoint the catalogue does not know.
@@ -98,7 +124,7 @@ services:
       # all loaded at boot and the person switches between them at runtime with /model.
       #
       # NAME IT FOR ITS ROLE, NOT ITS HARDWARE. The entry's id is what /model shows and what
-      # HERMES_PROVIDER selects, and the box behind it gets replaced: today a DGX serving GLM,
+      # HERMES_EASY_PROVIDER selects, and the box behind it gets replaced: today a DGX serving GLM,
       # next month vLLM or Unsloth serving something else. `house`, `private`, `onprem`,
       # `lab` all age well; `dgx` and `glm` do not. Never the bare word `custom`: Hermes
       # treats a stored bare "custom" as corrupt state from an old model-switch bug and
@@ -242,7 +268,7 @@ services:
         #     reach OpenAI at all, with nothing saying so. Switching model in /model would
         #     have sent gpt-* to a machine that has never heard of it.
         #   * Borrowing the provider the catalogue infers from the model name is worse. A
-        #     model served as glm-5.3-flash resolves to provider 'zai' whatever HERMES_PROVIDER
+        #     model served as glm-5.3-flash resolves to provider 'zai' whatever the provider
         #     says, and the session then dies with "No usable credentials found for provider
         #     'zai'. Set GLM_API_KEY, ZAI_API_KEY, Z_AI_API_KEY" -- for a model running on
         #     hardware in the next room. Setting GLM_BASE_URL and GLM_API_KEY does work, and
@@ -306,35 +332,44 @@ services:
         # openai/gpt-5.6-luna had both been running Claude through OpenRouter for a day --
         # visible only on the agent that lacked an OPENROUTER_API_KEY, which failed with
         # "payment / credit error" instead of failing loudly. Hence this block.
-        if [ -n "${HERMES_MODEL:-}" ] || [ -n "${HERMES_PROVIDER:-}" ]; then
+        #
+        # The panel says HERMES_EASY_MODEL / HERMES_EASY_PROVIDER, and compose falls back to
+        # the old HERMES_MODEL / HERMES_PROVIDER when the new ones are empty. The values live
+        # in M_MODEL / M_PROVIDER, plain shell variables, so the split below can never be
+        # exported into `hermes gateway run` under a name Hermes reads itself.
+        M_MODEL="$${HERMES_EASY_MODEL:-}"; M_PROVIDER="$${HERMES_EASY_PROVIDER:-}"
+        if [ -n "${HERMES_MODEL:+x}${HERMES_PROVIDER:+x}" ] && [ -z "${HERMES_EASY_MODEL:+x}${HERMES_EASY_PROVIDER:+x}" ]; then
+          echo "[hermes-easy] NOTE: HERMES_MODEL / HERMES_PROVIDER in the panel are read as HERMES_EASY_MODEL / HERMES_EASY_PROVIDER. Rename them when convenient; the old names are no longer passed to Hermes itself."
+        fi
+        if [ -n "$$M_MODEL" ] || [ -n "$$M_PROVIDER" ]; then
           # provider/model, the way a control panel names it (2026-09-30): the prefix is the
           # provider and the rest is the model, so one variable says whose model it is and
-          # HERMES_PROVIDER can stay empty. A model id may itself contain a slash (a Hub path
-          # such as unsloth/Qwen3-Next-GGUF served under a provider named unsloth), so the
-          # split is only made when the prefix is not already accounted for: with
-          # HERMES_PROVIDER set to something else, the slash is part of the model id. The
-          # /models probe further down settles the rest -- if the endpoint serves the unsplit
-          # name and not the split one, the unsplit one is written back.
-          RAW_MODEL="$${HERMES_MODEL:-}"
+          # HERMES_EASY_PROVIDER can stay empty. A model id may itself contain a slash (a Hub
+          # path such as unsloth/Qwen3-Next-GGUF served under a provider named unsloth), so
+          # the split is only made when the prefix is not already accounted for: with
+          # HERMES_EASY_PROVIDER set to something else, the slash is part of the model id.
+          # The /models probe further down settles the rest -- if the endpoint serves the
+          # unsplit name and not the split one, the unsplit one is written back.
+          RAW_MODEL="$${M_MODEL:-}"
           case "$$RAW_MODEL" in
             */*)
               PREFIX="$${RAW_MODEL%%/*}"; REST="$${RAW_MODEL#*/}"
-              if [ -z "$${HERMES_PROVIDER:-}" ] || [ "$$PREFIX" = "$${HERMES_PROVIDER:-}" ]; then
-                HERMES_PROVIDER="$$PREFIX"; HERMES_MODEL="$$REST"
+              if [ -z "$${M_PROVIDER:-}" ] || [ "$$PREFIX" = "$${M_PROVIDER:-}" ]; then
+                M_PROVIDER="$$PREFIX"; M_MODEL="$$REST"
                 if echo "$${HERMES_PROVIDERS:-}" | tr ';' '\n' | grep -qE "^[[:space:]]*$$PREFIX\|"; then
-                  echo "[hermes-easy] HERMES_MODEL '$$RAW_MODEL': provider '$$PREFIX' (from HERMES_PROVIDERS), model '$$REST'."
+                  echo "[hermes-easy] HERMES_EASY_MODEL '$$RAW_MODEL': provider '$$PREFIX' (from HERMES_PROVIDERS), model '$$REST'."
                 else
-                  echo "[hermes-easy] HERMES_MODEL '$$RAW_MODEL': provider '$$PREFIX' (a catalogue slug -- a wrong one fails at start with \"Unknown provider\"), model '$$REST'."
+                  echo "[hermes-easy] HERMES_EASY_MODEL '$$RAW_MODEL': provider '$$PREFIX' (a catalogue slug -- a wrong one fails at start with \"Unknown provider\"), model '$$REST'."
                 fi
               else
-                echo "[hermes-easy] HERMES_MODEL '$$RAW_MODEL' keeps its '/': HERMES_PROVIDER='$$HERMES_PROVIDER' is set, so the slash is part of the model id."
+                echo "[hermes-easy] HERMES_EASY_MODEL '$$RAW_MODEL' keeps its '/': HERMES_EASY_PROVIDER='$$M_PROVIDER' is set, so the slash is part of the model id."
               fi ;;
           esac
-          if [ -n "$${HERMES_PROVIDER:-}" ]; then
-            hermes config set model.provider "$$HERMES_PROVIDER" --force >/dev/null
+          if [ -n "$${M_PROVIDER:-}" ]; then
+            hermes config set model.provider "$$M_PROVIDER" --force >/dev/null
           fi
-          if [ -n "$${HERMES_MODEL:-}" ]; then
-            hermes config set model.default "$$HERMES_MODEL" --force >/dev/null
+          if [ -n "$${M_MODEL:-}" ]; then
+            hermes config set model.default "$$M_MODEL" --force >/dev/null
           fi
           if [ -n "${HERMES_MODEL_BASE_URL:-}" ]; then
             hermes config set model.base_url "$$HERMES_MODEL_BASE_URL" --force >/dev/null
@@ -343,7 +378,7 @@ services:
             # would kill the boot before `exec hermes gateway run`.
             hermes config unset model.base_url >/dev/null 2>&1 || true
           fi
-          echo "[hermes-easy] model -> $${HERMES_MODEL:-(unchanged)} via provider $${HERMES_PROVIDER:-(unchanged)}"
+          echo "[hermes-easy] model -> $${M_MODEL:-(unchanged)} via provider $${M_PROVIDER:-(unchanged)}"
 
           # Ask the endpoint whether it actually serves that name.
           #
@@ -364,15 +399,15 @@ services:
           # instead would check the wrong machine -- or, once OPENAI_BASE_URL is correctly left
           # empty, no machine at all.
           MODEL_URL="$${HERMES_MODEL_BASE_URL:-}"; MODEL_KEY=""
-          if [ -z "$$MODEL_URL" ] && [ -n "$${HERMES_PROVIDER:-}" ] && [ -n "${HERMES_PROVIDERS:-}" ]; then
-            SEL="$$(echo "$$HERMES_PROVIDERS" | tr ';' '\n' | grep -E "^[[:space:]]*$$HERMES_PROVIDER\|" | head -1)"
+          if [ -z "$$MODEL_URL" ] && [ -n "$${M_PROVIDER:-}" ] && [ -n "${HERMES_PROVIDERS:-}" ]; then
+            SEL="$$(echo "$$HERMES_PROVIDERS" | tr ';' '\n' | grep -E "^[[:space:]]*$$M_PROVIDER\|" | head -1)"
             if [ -n "$$SEL" ]; then
               MODEL_URL="$$(echo "$$SEL" | cut -d'|' -f3)"
               MODEL_KEY="$$(printenv "$$(echo "$$SEL" | cut -d'|' -f4)" 2>/dev/null || true)"
             fi
           fi
           [ -n "$$MODEL_URL" ] || MODEL_URL="$${OPENAI_BASE_URL:-}"
-          if [ -n "$${HERMES_MODEL:-}" ] && [ -n "$$MODEL_URL" ] && command -v curl >/dev/null 2>&1; then
+          if [ -n "$${M_MODEL:-}" ] && [ -n "$$MODEL_URL" ] && command -v curl >/dev/null 2>&1; then
             [ -n "$$MODEL_KEY" ] || MODEL_KEY="$${OPENAI_API_KEY:-$${PRIVATE_LLM_API_KEY:-}}"
             SERVED="$$(curl -sS -m 10 "$${MODEL_URL%/}/models" \
                         $${MODEL_KEY:+-H "authorization: Bearer $$MODEL_KEY"} 2>/dev/null \
@@ -380,17 +415,66 @@ services:
                        | grep -v '^modelperm-')"   # vLLM nests a permission id called "id" too
             if [ -z "$$SERVED" ]; then
               echo "[hermes-easy] NOTE: $${MODEL_URL%/}/models did not answer, so the model name is unverified. If every call returns 404, this is the first thing to check."
-            elif echo "$$SERVED" | grep -qxF "$$HERMES_MODEL"; then
-              echo "[hermes-easy] the endpoint serves '$$HERMES_MODEL'."
-            elif [ "$$RAW_MODEL" != "$$HERMES_MODEL" ] && echo "$$SERVED" | grep -qxF "$$RAW_MODEL"; then
+            elif echo "$$SERVED" | grep -qxF "$$M_MODEL"; then
+              echo "[hermes-easy] the endpoint serves '$$M_MODEL'."
+            elif [ "$$RAW_MODEL" != "$$M_MODEL" ] && echo "$$SERVED" | grep -qxF "$$RAW_MODEL"; then
               # The slash was part of the model id after all; the endpoint knows the full name.
               hermes config set model.default "$$RAW_MODEL" --force >/dev/null
-              echo "[hermes-easy] the endpoint serves '$$RAW_MODEL', not '$$HERMES_MODEL': the full name is kept as the model."
+              echo "[hermes-easy] the endpoint serves '$$RAW_MODEL', not '$$M_MODEL': the full name is kept as the model."
             else
-              echo "[hermes-easy] WARNING: the endpoint does NOT serve '$$HERMES_MODEL'. Every call will answer HTTP 404. It serves: $$(echo "$$SERVED" | tr '\n' ' ')"
-              echo "[hermes-easy]          Set HERMES_MODEL to one of those names and redeploy."
+              echo "[hermes-easy] WARNING: the endpoint does NOT serve '$$M_MODEL'. Every call will answer HTTP 404. It serves: $$(echo "$$SERVED" | tr '\n' ' ')"
+              echo "[hermes-easy]          Set HERMES_EASY_MODEL to one of those names and redeploy."
             fi
           fi
+        fi
+        # --- Provider names that collide with the model name ---
+        #
+        # Measured 2026-10-27 against api.garageai.eu, which serves a model called
+        # garageai/auto: Hermes splits a model "X/Y" into provider X, model Y wherever X is a
+        # key (or display name) under providers: -- resolve_startup_model_route in
+        # hermes_cli/model_switch.py, and parse_model_input on /model. With a provider named
+        # garageai, the model the endpoint knows as garageai/auto went out as plain `auto`
+        # (upstream #123997, #118153). Two ways to get there, both warned about here:
+        #   * a HERMES_PROVIDERS id or display name equal to the model's own prefix;
+        #   * a leftover providers: entry (from the UI, or an earlier HERMES_PROVIDERS)
+        #     pointing at the same base_url as a declared one -- the seed leaves such entries
+        #     alone, so a renamed provider keeps its old name alive in config.yaml.
+        # Warnings only: the config is read with Hermes' own loader, after everything above
+        # has been written, and a failure here never stops the boot.
+        if [ -n "${HERMES_PROVIDERS:-}" ]; then
+          ( cd /tmp && python3 - <<'PY' 2>/dev/null ) || true
+        import os
+        from hermes_cli.config import load_config
+        cfg = load_config() or {}
+        model = str((cfg.get("model") or {}).get("default") or "").strip()
+        providers = cfg.get("providers") or {}
+        declared = {}
+        for rec in os.environ.get("HERMES_PROVIDERS", "").replace("\n", ";").split(";"):
+            f = [p.strip() for p in rec.split("|")]
+            if len(f) >= 3 and f[0]:
+                declared[f[0]] = (f[1] or f[0], f[2].rstrip("/"))
+        def slug(s):
+            return str(s).strip().lower().replace(" ", "-")
+        if "/" in model:
+            prefix = slug(model.split("/", 1)[0])
+            names = {}
+            for pid, (pname, _) in declared.items():
+                names.setdefault(slug(pid), "HERMES_PROVIDERS id '%s'" % pid)
+                names.setdefault(slug(pname), "display name '%s' of HERMES_PROVIDERS id '%s'" % (pname, pid))
+            for key, entry in providers.items():
+                names.setdefault(slug(key), "providers.%s in config.yaml" % key)
+                if isinstance(entry, dict) and entry.get("name"):
+                    names.setdefault(slug(entry["name"]), "display name '%s' of providers.%s" % (entry["name"], key))
+            if prefix in names:
+                print("[hermes-easy] WARNING: the model '%s' starts with '%s/', and %s has that name. Hermes will read the model as provider '%s' + model '%s' and send the wrong name. Rename the provider (e.g. house)." % (model, model.split("/", 1)[0], names[prefix], model.split("/", 1)[0], model.split("/", 1)[1]))
+        urls = {url: pid for pid, (_, url) in declared.items() if url}
+        for key, entry in providers.items():
+            if key in declared or not isinstance(entry, dict):
+                continue
+            url = str(entry.get("base_url") or "").rstrip("/")
+            if url and url in urls:
+                print("[hermes-easy] WARNING: providers.%s in config.yaml points at %s like HERMES_PROVIDERS id '%s', but is not declared in HERMES_PROVIDERS (a leftover from the UI or an earlier name?). Remove it with: hermes config unset providers.%s" % (key, url, urls[url], key))
+        PY
         fi
           # Either address variable is enough, and any spelling of it: the store's base URL, or the
           # URL with /mcp or /skillhub on the end, with or without a trailing slash. Until 2026-09-14
