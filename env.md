@@ -8,9 +8,25 @@ Set these in Easypanel under the service's **Environment** tab. Values in `docke
 |----------|---------|-------------|
 | `OPENAI_BASE_URL` | `https://api.example.com/v1` | OpenAI-compatible endpoint |
 | `OPENAI_API_KEY` | `sk-...` or `dummy` | API key (must be set even if the endpoint doesn't require auth) |
-| `HERMES_MODEL` | `openai-api/gpt-5.6-luna` | `provider/model`: the prefix is an id from `HERMES_PROVIDERS` or a catalogue slug, and the seed splits it. A bare name works with `HERMES_PROVIDER` beside it. Written into `config.yaml` by the boot seed. |
-| `HERMES_PROVIDER` | *(empty)* | Only for the bare-name spelling of `HERMES_MODEL`. With it set, a `/` in the model is part of the model id (a Hub path such as `unsloth/…`). |
+| `HERMES_EASY_MODEL` | `openai-api/gpt-5.6-luna` | `provider/model`: the prefix is an id from `HERMES_PROVIDERS` or a catalogue slug, and the seed splits it. A bare name works with `HERMES_EASY_PROVIDER` beside it. Written into `config.yaml` by the boot seed. |
+| `HERMES_EASY_PROVIDER` | *(empty)* | Only for the bare-name spelling of `HERMES_EASY_MODEL`. With it set, a `/` in the model is part of the model id (a Hub path such as `unsloth/…`, or a served name such as `garageai/auto`). |
 | `HERMES_MODEL_BASE_URL` | *(empty)* | Only for an endpoint the catalogue does not know. Empty makes the seed **remove** `model.base_url`. |
+
+**Why `HERMES_EASY_*` and not `HERMES_MODEL`.** `HERMES_MODEL` is Hermes' own variable: the
+TUI, cron and ACP read it as a startup model, and `resolve_startup_model_route`
+(`hermes_cli/model_switch.py`) splits `X/Y` into provider `X` + model `Y` whenever `X` is a key
+under `providers:`. Measured 2026-10-27: an endpoint serving a model called `garageai/auto`
+behind a provider called `garageai` got requests for plain `auto` from those paths, while
+`config.yaml` said otherwise (upstream #123997, #118153). The `HERMES_EASY_*` names are read by
+the boot seed only. A panel that still says `HERMES_MODEL` / `HERMES_PROVIDER` keeps working --
+compose reads them as fallbacks, the boot log says so -- but the container gets both old names
+**blank**, so Hermes never sees them.
+
+The seed also warns when a model's own prefix collides with a provider: when a `HERMES_PROVIDERS`
+id or display name (or any `providers:` key in `config.yaml`) equals the part before the `/` of
+the model it wrote, and when a `providers:` entry not declared in `HERMES_PROVIDERS` points at
+the same `base_url` as one that is (a leftover from the UI or from an earlier name -- the seed
+leaves undeclared entries alone, so a renamed provider keeps its old name alive).
 
 ### Why these go through config.yaml
 
@@ -28,7 +44,7 @@ between them at runtime with `/model`. `api_mode` defaults to `chat_completions`
 vLLM, Ollama and llama.cpp serve; `anthropic_messages` and `codex_responses` are the others.
 
 **Name the entry for its role, not its hardware.** The id is what `/model` shows and what
-`HERMES_PROVIDER` selects, and the box behind it gets replaced -- today a DGX serving GLM, next
+`HERMES_EASY_PROVIDER` selects, and the box behind it gets replaced -- today a DGX serving GLM, next
 month vLLM or Unsloth serving something else. `house`, `private`, `onprem` and `lab` age well;
 `dgx` and `glm` do not. The boot seed refuses the bare word `custom`: Hermes treats a stored
 bare `custom` as corrupt state from an old model-switch bug and self-heals it to the first entry
@@ -48,7 +64,7 @@ like they work and then take something else away:
   and switching model in `/model` would have sent `gpt-*` to a machine that has never heard
   of it.
 - Borrowing the provider the catalogue infers from the model name is worse. A model served as
-  `glm-5.3-flash` resolves to provider `zai` whatever `HERMES_PROVIDER` says, and the session
+  `glm-5.3-flash` resolves to provider `zai` whatever provider you meant, and the session
   dies with *"No usable credentials found for provider 'zai'. Set GLM_API_KEY, ZAI_API_KEY,
   Z_AI_API_KEY"* -- for a model running on hardware in the next room. Setting `GLM_BASE_URL`
   and `GLM_API_KEY` does work, and is still a lie: the day that box serves Qwen, the name
@@ -73,7 +89,8 @@ Since then the boot seed asks for you whenever the endpoint is given by URL, and
 `the endpoint serves '<name>'` or a warning listing the names it does serve. It is a warning,
 not a refusal: a model server can legitimately be asleep when the agent boots.
 
-`HERMES_MODEL` on its own does nothing. The active model is read from `config.yaml` and
+`HERMES_MODEL` on its own does nothing for the gateway (and since 2026-10 this repo no longer
+passes it at all, see above). The active model is read from `config.yaml` and
 only from there — `tui_gateway/server.py:1423` takes `(model, provider)` "by config.yaml
 — and ONLY config", and `hermes_cli/config.py:2989` states that "a truthy configured
 model wins over `HERMES_MODEL`". The image ships:
@@ -109,8 +126,9 @@ whenever `HERMES_MODEL_BASE_URL` is empty.
 
 ### Private AI / your own endpoint
 
-An endpoint of your own is not in the catalogue. It needs a **named** entry plus
-`model.provider = custom:<name>`:
+An endpoint of your own is not in the catalogue. It needs a **named** entry under
+`providers:`, and `model.provider` set to that entry's **bare key** (`house`). The
+`custom:<name>` form belongs to the legacy `custom_providers:` list, not to this one:
 
 ```yaml
 providers:
@@ -133,10 +151,8 @@ the same rule as `SUPABASE_MCP_KEY`.
 describes; the hand-written form is here because it is what the entry looks like, and for an
 endpoint you want on one agent only.
 
-This is **not** seeded from env yet, deliberately: there is no private endpoint here to
-test the branch against, and untested boot-seed code is worse than a documented recipe.
-Set it once per agent with `hermes config set providers.house.base_url …` (dotted keys
-create the nested entry — verified) and it persists on the volume across Redeploys.
+By hand it is `hermes config set providers.house.base_url …` (dotted keys create the nested
+entry — verified), once per agent; it persists on the volume across Redeploys.
 
 ## Provider API keys (switch model/provider from the dashboard)
 
@@ -157,8 +173,8 @@ Set any of these and you can switch between providers live in Hermes via the
 ## Dashboard auth (required)
 
 Hermes v0.21 (2026.9) changed the rule: the dashboard **refuses to bind on 0.0.0.0
-without an auth provider**, and `HERMES_DASHBOARD_INSECURE` no longer disables the
-gate on a non-loopback bind. Since Easypanel reaches the container over the Docker
+without an auth provider**. `HERMES_DASHBOARD_INSECURE` is a no-op upstream (it only logs a
+warning), so this repo no longer passes it. Since Easypanel reaches the container over the Docker
 network, the bind is always non-loopback, so a password is mandatory:
 
 ```
@@ -174,9 +190,14 @@ HERMES_DASHBOARD_BASIC_AUTH_SECRET=<openssl rand -hex 32>
 | Variable | Description |
 |----------|-------------|
 | `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` | Login username |
-| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` | Plaintext password (hashed in memory at startup) |
+| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` | Plaintext password (hashed in memory at startup). Wins over the hash below when both are set. |
+| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH` | Instead of the plaintext password, so the panel never holds it in clear. Leave `…_PASSWORD` empty when using it. Compute it in the container: `cd /opt/hermes && python3 -c "from plugins.dashboard_auth.basic import hash_password; print(hash_password('s3cret'))"`. The hash contains `$`, so put it in single quotes in the panel or compose expands it. |
 | `HERMES_DASHBOARD_BASIC_AUTH_SECRET` | HMAC signing key for session tokens — sessions die on restart without it |
-| `HERMES_DASHBOARD_INSECURE` | Only honoured by images older than 2026.9. Leave empty. |
+| `HERMES_DASHBOARD_PUBLIC_URL` | Optional. The Domain the dashboard is reached at, e.g. `https://hermes.example.com`, so login redirects and cookie paths are built for it. Blank counts as unset. |
+
+The container has a healthcheck against `http://127.0.0.1:9119/api/health`, which needs no
+login and answers `{"ok":true,...}`. It says the dashboard is up, not that the gateway or the
+model endpoint is.
 
 ## Networking
 
@@ -190,7 +211,7 @@ host fail with "port is already allocated" while Easypanel still reports success
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PULL_POLICY` | — | **Unused.** The image is built from the `Dockerfile`, and the base tag is re-resolved on every build by `pull: true`. |
-| `HERMES_TAG` | (empty = `latest`) | Docker Hub tag. `latest` is rebuilt from upstream `main` several times a week and is usually *ahead* of the newest GitHub release (on 2026-09-09: `latest` = v0.21.1 built that night, newest release tag `v2026.9.7`). Pin a `vYYYY.M.D` tag for reproducible redeploys. |
+| `HERMES_TAG` | (empty = `latest`) | Docker Hub tag. Since v0.22.0 upstream moves `latest` and `stable` only when a release is cut (before that, `latest` was rebuilt from `main` several times a week). Pin a release tag such as `v0.22.5` when every redeploy must give the same image even after the next release. |
 
 ## How a session sees the keys (Hermes 2026.9.24 and later)
 
@@ -222,14 +243,15 @@ memories, skills, cron, and the packages the agent installs itself. A Redeploy k
 |---|---|---|
 | `NPM_CONFIG_PREFIX` | `/opt/data/.local` | Where the agent's own `npm install -g` lands: on the volume, on PATH. |
 | `UV_TOOL_DIR` / `UV_TOOL_BIN_DIR` | `/opt/data/.local/uv-tools`, `/opt/data/.local/bin` | Same for `uv tool install`. |
-| `PLAYWRIGHT_BROWSERS_PATH` | image default | Leave unset. The image ships Chromium and points this at it; an empty value would leave the browser tool looking in an empty directory. |
+| `PLAYWRIGHT_BROWSERS_PATH` | image default | Leave unset; compose does not pass it. The image ships Chromium and points this at it (`/opt/hermes/tools` on v0.22). An empty value, or the old `/opt/hermes/.playwright`, leaves the browser tool looking in an empty directory. |
 | `HERMES_UID` / `HERMES_GID` | `10000` | The runtime user. |
 
 Variables that older versions of `example.env` listed and the seed still honours:
-`HERMES_PROVIDER` (the bare-name spelling of the model), `HERMES_MODEL_BASE_URL` (an endpoint
+`HERMES_MODEL` / `HERMES_PROVIDER` (read as `HERMES_EASY_MODEL` / `HERMES_EASY_PROVIDER` when
+those are empty, never passed on to Hermes), `HERMES_MODEL_BASE_URL` (an endpoint
 the catalogue does not know; empty removes `model.base_url`), `OPENAI_BASE_URL` (repoints the
 *real* OpenAI provider -- a private box belongs in `HERMES_PROVIDERS` instead),
-`HERMES_DASHBOARD_INSECURE` (images older than 2026.9 only), `SUPABASE_SKILLHUB_URL` (alias of
+`SUPABASE_SKILLHUB_URL` (alias of
 `SUPABASE_MCP_URL`; `-` disables the skillhub server).
 
 ## Running multiple Hermes instances
@@ -302,16 +324,13 @@ is that `OPENAI_BASE_URL` and `OPENAI_API_KEY` alone do *not* move the model off
 default, which is the whole point of the section above.
 
 ```
-HERMES_MODEL=llama3.2
-OPENAI_API_KEY=ollama
+HERMES_EASY_MODEL=ollama/llama3.2
+HERMES_PROVIDERS=ollama|Ollama|http://host.docker.internal:11434/v1|OLLAMA_KEY
+OLLAMA_KEY=ollama
 ```
 
-plus, once per agent:
-
-```
-hermes config set providers.ollama.base_url http://host.docker.internal:11434/v1
-hermes config set model.provider custom:ollama
-```
+which the boot seed turns into `providers.ollama` and `model.provider: ollama` (the bare key,
+not `custom:ollama`).
 
 Leave `HERMES_MODEL_BASE_URL` empty: the endpoint comes from the `providers:` entry, and
 setting `model.base_url` as well recreates exactly the contradiction described above.

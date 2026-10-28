@@ -24,7 +24,7 @@ login, and (for a shared-data fleet) the Supabase MCP trio:
 ```
 OPENAI_BASE_URL=https://api.example.com/v1   # your OpenAI-compatible endpoint, or drop both
 OPENAI_API_KEY=your-key                       # OPENAI_* lines and set e.g. OPENROUTER_API_KEY
-HERMES_MODEL=openai-api/gpt-5.6-luna          # provider/model; prefix = a HERMES_PROVIDERS id or a catalogue slug (plain `openai` does not exist)
+HERMES_EASY_MODEL=openai-api/gpt-5.6-luna     # provider/model; prefix = a HERMES_PROVIDERS id or a catalogue slug (plain `openai` does not exist)
 HERMES_DASHBOARD_BASIC_AUTH_USERNAME=alice
 HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=s3cret
 HERMES_DASHBOARD_BASIC_AUTH_SECRET=<openssl rand -hex 32>
@@ -36,10 +36,15 @@ HERMES_AGENT_ID=agent_NN
 The dashboard login is not optional: Hermes 2026.9+ refuses to start the dashboard on a
 non-loopback bind without it. See [env.md](env.md) for all variables and [example.env](example.env).
 
+`HERMES_EASY_MODEL` was called `HERMES_MODEL` until 2026-10. The old name still works in the
+panel, but it is no longer passed to Hermes itself, which reads `HERMES_MODEL` on its own and
+split a served name like `garageai/auto` into provider + `auto`. See env.md.
+
 ### 4. Deploy
 
 Hit **Deploy**, then add a **Domain** on the service pointing at port `9119`. There is no
-host port; the dashboard is reached through that domain.
+host port; the dashboard is reached through that domain. The container reports healthy once
+`/api/health` answers (open without login; it covers the dashboard, not the model endpoint).
 
 ---
 
@@ -73,9 +78,10 @@ correctly.
 
 ## Updating
 
-`docker-compose.yml` pulls `nousresearch/hermes-agent:${HERMES_TAG:-latest}` on every
-Redeploy. `latest` tracks upstream `main` and is usually ahead of the newest release; pin
-`HERMES_TAG=v2026.9.7`-style tags when you want the same image every time.
+`docker-compose.yml` builds on `nousresearch/hermes-agent:${HERMES_TAG:-latest}` and re-pulls
+the base on every Redeploy. Since v0.22.0 upstream moves `latest` (and `stable`) only when a
+release is cut, so an unset tag means the newest release; pin `HERMES_TAG=v0.22.5`-style tags
+when you want the same image every time.
 
 ## Persistence
 
@@ -109,16 +115,18 @@ a scanned document turns up.
 
 Two things are *not* on the volume, by design:
 
-- **Playwright browsers** ship inside the image (`/opt/hermes/.playwright`, ~266 MB), so
-  they come back with every image. Do not repoint `PLAYWRIGHT_BROWSERS_PATH` at the data
-  volume: that directory is empty and the browser tool would re-download the set.
-  **And do not pass it empty either** — an empty value overrides the image's own `ENV`, so
-  the browser tool scans `$HOME/.cache/ms-playwright` (here `/root/.cache`, which holds
-  nothing) and reports that there is no browser. This compose file therefore defaults the
-  variable to the image's path rather than to the empty string. Measured 2026-09-17: an
-  agent asked to log in to a website found no browser, downloaded a 293 MB Chrome of its own
-  into the volume, and still could not see it, while 266 MB of Chromium sat unused in the
-  image. Passing a variable as empty is not the same as not passing it.
+- **Playwright browsers** ship inside the image, and the image's own
+  `PLAYWRIGHT_BROWSERS_PATH` points at them (`/opt/hermes/tools` on v0.22; it has moved
+  before), so they come back with every image. This compose file does **not** set the
+  variable, so the image's value always wins. Do not set it in the panel: pointed at the data
+  volume it finds an empty directory and the browser tool re-downloads the set, and an
+  **empty** value overrides the image's `ENV` so the tool scans `$HOME/.cache/ms-playwright`
+  and reports that there is no browser. Measured 2026-09-17: an agent asked to log in to a
+  website found no browser, downloaded a 293 MB Chrome of its own into the volume, and still
+  could not see it. Until 2026-10 this file defaulted the variable to
+  `/opt/hermes/.playwright`, which later images no longer have -- the same failure again.
+  `/dev/shm` is raised to 1 GB (`shm_size`) because Chromium uses it for renderer memory and
+  Docker's 64 MB default crashes heavier pages.
 - **System packages installed with `apt` at runtime.** Those live in the container layer
   and reset on every redeploy, and the agent cannot install them anyway: it runs as the
   unprivileged `hermes` user and the image ships no `sudo`.

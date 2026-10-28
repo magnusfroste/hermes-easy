@@ -52,4 +52,5 @@ RUN pdftotext -v 2>&1 | head -1 \
     && /opt/hermes/.venv/bin/python3 -c "import openpyxl; print('openpyxl', openpyxl.__version__)"
 
 # Nothing else changes: the base image's entrypoint, workdir and environment stand as they
-# are, including PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright.
+# are, including its own PLAYWRIGHT_BROWSERS_PATH (/opt/hermes/tools on v0.22). The compose
+# file deliberately does not set that variable, so whatever path the image chooses wins.
