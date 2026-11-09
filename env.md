@@ -199,10 +199,21 @@ The container has a healthcheck against `http://127.0.0.1:9119/api/health`, whic
 login and answers `{"ok":true,...}`. It says the dashboard is up, not that the gateway or the
 model endpoint is.
 
+## Webapp (Desktop in a browser tab)
+
+| Variable | Description |
+|----------|-------------|
+| `HERMES_EASY_WEBAPP_URL` | The Domain the Webapp is reached at, e.g. `https://hermes.example.com`, pointed at container port `9120`. Set: the seed writes `webapp.enabled: true`, `host: 0.0.0.0`, `port: 9120` and `public_url` to `config.yaml`. Empty: `webapp.enabled: false`, upstream's default. Must start with `http://` or `https://`. |
+
+Upstream has no environment variable for this; `hermes-easy` adds this one because the panel
+only offers variables. The Webapp uses the dashboard's sign-in, so the three
+`HERMES_DASHBOARD_BASIC_AUTH_*` variables cover it too, and no Nous account is needed. Upstream's
+Desktop "Web Access" pane is a different route that does use Nous sign-in.
+
 ## Networking
 
 No host port is published. Give the service a **Domain** in Easypanel pointing at
-container port `9119`; Traefik does the rest. `APP_PORT` and `APP_BIND` from earlier
+container port `9119`, and a second one at `9120` for the Webapp; Traefik does the rest. `APP_PORT` and `APP_BIND` from earlier
 versions of this repo are gone: a `ports:` binding makes a second Hermes on the same
 host fail with "port is already allocated" while Easypanel still reports success.
 

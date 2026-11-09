@@ -2,7 +2,10 @@
 
 The fastest, simplest way to run [Hermes Agent](https://github.com/NousResearch/hermes-agent) on [Easypanel](https://easypanel.io).
 
-No build step. No complex configuration. Just deploy and go.
+One compose file that Easypanel builds for you. No complex configuration. Just deploy and go.
+
+Unsure what is Hermes and what is this repo? See
+[Out of the box, and what this repo changes](#out-of-the-box-and-what-this-repo-changes).
 
 ---
 
@@ -45,6 +48,62 @@ split a served name like `garageai/auto` into provider + `auto`. See env.md.
 Hit **Deploy**, then add a **Domain** on the service pointing at port `9119`. There is no
 host port; the dashboard is reached through that domain. The container reports healthy once
 `/api/health` answers (open without login; it covers the dashboard, not the model endpoint).
+
+### 5. Optional: the Webapp (Desktop in a browser tab)
+
+Hermes has two web interfaces, and they are not the same thing:
+
+| | Dashboard (port `9119`) | Webapp (port `9120`) |
+|---|---|---|
+| What it is | Admin panel; its chat is the terminal UI in a browser tab | The full Hermes Desktop workspace |
+| Use it for | Settings, keys, status, troubleshooting | Working with the agent day to day |
+| Default | On | Off |
+
+They use the same agent, the same `/opt/data` and the same login. To turn the Webapp on, give
+each interface its own Domain:
+
+1. Add a second **Domain** on the service pointing at port `9120`.
+2. Set `HERMES_EASY_WEBAPP_URL` to that Domain, e.g. `https://hermes.example.com`, and
+   **Deploy**.
+
+Clear the variable and Deploy to turn it off again. The boot log says
+`[hermes-easy] Webapp on at ...` when it is on. Two Domains are used rather than `/admin` on
+one Domain because the dashboard can live under a sub-path only if the proxy strips the prefix,
+which an Easypanel Domain does not do.
+
+---
+
+## Out of the box, and what this repo changes
+
+Nothing in Hermes' own code is patched. Everything below is the compose file, its boot seed, or
+a small image layer on top of `nousresearch/hermes-agent`.
+
+**From upstream, unchanged:** the agent, gateway, tools and browser; the dashboard on `9119`;
+the Webapp on `9120`; s6 process supervision; `/api/health`; the username/password sign-in; the
+model provider catalogue; `/model` and the rest of the commands.
+
+**Needed to make Hermes work on Easypanel:**
+
+| What | Why |
+|---|---|
+| `expose` instead of `ports`, reached through Domains | Traefik routes the Domain; a host port makes a second instance fail while Easypanel reports success |
+| Named volume on `/opt/data` | Everything Hermes owns survives a Redeploy |
+| Boot seed writing `config.yaml` from panel variables | Easypanel only offers environment variables, and Hermes reads the model, providers and Webapp from `config.yaml` |
+| `HERMES_EASY_MODEL` / `HERMES_EASY_PROVIDER` instead of `HERMES_MODEL` | Hermes reads `HERMES_MODEL` itself and can split a served name like `garageai/auto` |
+| `HERMES_EASY_WEBAPP_URL` | The Webapp has no environment variable upstream; the seed writes its `webapp:` block, binds `0.0.0.0` so Traefik can reach it, and sets the public address |
+| Secrets written to `/dev/shm`, read through `secrets.command` | Panel variables reach the process environment, which a session's secret scope does not read; tmpfs keeps them off the volume |
+| Restart of the `gateway-default` and `dashboard` services after the seed | The image starts them before the seed runs, so they would otherwise miss its config |
+| `pull: true` on the build | A Redeploy would otherwise keep a cached `latest` |
+| `NPM_CONFIG_PREFIX`, `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR` on the volume | Tools the agent installs survive a Redeploy |
+
+**Good to have, not required by Easypanel:** the `healthcheck`, and `shm_size: 1gb` so Chromium
+does not crash on heavier pages.
+
+**Our own additions, unrelated to Easypanel:** `poppler-utils` and `openpyxl` in the image (see
+[What this image adds](#what-this-image-adds)), and the Supabase/SkillHub MCP setup with its
+`SOUL.md` agent identity. Without those variables set, the shared-store part does nothing.
+
+If upstream later ships one of these itself, the row above should go away with it.
 
 ---
 
@@ -139,8 +198,8 @@ Two things are *not* on the volume, by design:
   `/opt/data/lazy-packages` (the image's own `HERMES_LAZY_INSTALL_TARGET`).
 
   Only real system packages need an image. The base image already has `git`, `ripgrep`,
-  `curl`, `node`/`npm`/`npx`, `uv` and the `docker` CLI; it does **not** have `tmux`,
-  `sudo` or a full `chromium`. "Thin" here means a two-instruction file — upstream's image
+  `curl`, `node`/`npm`/`npx`, `uv`, the `docker` CLI and, since v0.23, `tmux`; it does **not**
+  have `sudo` or a full `chromium`. "Thin" here means a two-instruction file — upstream's image
   plus one `apt-get` layer, no source build, no application code — the same pattern
   `openclaw-easy` uses:
 
@@ -148,7 +207,7 @@ Two things are *not* on the volume, by design:
   FROM nousresearch/hermes-agent:latest
   USER root
   RUN apt-get update && apt-get install -y --no-install-recommends \
-      tmux sudo python3-pip && rm -rf /var/lib/apt/lists/*
+      sudo python3-pip && rm -rf /var/lib/apt/lists/*
   ```
 
   Then swap the `image:` line for a `build: .` in `docker-compose.yml`; Easypanel builds it
