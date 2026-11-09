@@ -584,10 +584,13 @@ services:
         # secret sources once. Restart both so they come up on the config and the secrets file
         # written above; on an older image neither service exists and the exec below IS the
         # gateway, started after the seed as always.
-        if command -v s6-svc >/dev/null 2>&1 && [ -d /run/service/gateway-default ]; then
-          for SVC in gateway-default dashboard; do
-            if [ -d "/run/service/$$SVC" ] && s6-svc -r "/run/service/$$SVC" 2>/dev/null; then
-              echo "[hermes-easy] restarted supervised service $$SVC so it reads the seeded config and secrets"
+        # v0.23.0 moved the gateway's service directory to /run/hermes-service, so both places
+        # are tried; on that image the old path alone skipped the restart without a word, and
+        # a Webapp turned on by this boot's seed never started listening.
+        if command -v s6-svc >/dev/null 2>&1; then
+          for SVC_DIR in /run/hermes-service/gateway-default /run/service/gateway-default /run/service/dashboard; do
+            if [ -d "$$SVC_DIR" ] && s6-svc -r "$$SVC_DIR" 2>/dev/null; then
+              echo "[hermes-easy] restarted supervised service $$(basename "$$SVC_DIR") so it reads the seeded config and secrets"
             fi
           done
         fi
