@@ -28,7 +28,8 @@ services:
     # to the container port below, and a `ports:` binding makes a second instance fail
     # with "port is already allocated" while Easypanel still reports success.
     expose:
-      - "9119"
+      - "9119"   # the dashboard (admin)
+      - "9120"   # the Webapp, served by the gateway; only listens with HERMES_EASY_WEBAPP_URL set
     # Docker's default /dev/shm is 64 MB, and Chromium (the browser tool) uses it for its
     # renderer memory: a page heavier than that crashes the tab ("Aw, Snap" / target
     # closed) rather than failing with a message about memory.
@@ -86,6 +87,9 @@ services:
       # redirects and cookie paths are built for it rather than for the container address.
       # Blank counts as unset upstream.
       - HERMES_DASHBOARD_PUBLIC_URL=${HERMES_DASHBOARD_PUBLIC_URL:-}
+      # The Domain the Webapp (Desktop in a browser tab) is reached at, pointed at port 9120.
+      # Set: the seed turns the Webapp on. Empty: off, which is upstream's default.
+      - HERMES_EASY_WEBAPP_URL=${HERMES_EASY_WEBAPP_URL:-}
       # PLAYWRIGHT_BROWSERS_PATH is deliberately NOT listed: the image sets it to where it
       # put Chromium (/opt/hermes/tools on v0.22), and that path has moved before. Until
       # 2026-10 this file defaulted it to /opt/hermes/.playwright, which no longer exists, so
@@ -554,6 +558,27 @@ services:
           fi
           echo "[hermes-easy] SOUL.md identity -> $$HERMES_AGENT_ID"
         fi
+        # The Webapp has no environment variable upstream: it reads the webapp: block of
+        # config.yaml when the gateway starts, so the panel variable has to be written there.
+        # The wildcard bind is what lets Traefik reach it from outside the container, and it
+        # puts the Webapp behind the same sign-in as the dashboard. Unset turns it off again,
+        # so removing the variable in the panel does what it looks like.
+        case "${HERMES_EASY_WEBAPP_URL:-}" in
+          http://*|https://*)
+            hermes config set webapp.enabled true --force >/dev/null
+            hermes config set webapp.host 0.0.0.0 --force >/dev/null
+            hermes config set webapp.port 9120 --force >/dev/null
+            hermes config set webapp.public_url "$${HERMES_EASY_WEBAPP_URL%/}" --force >/dev/null
+            echo "[hermes-easy] Webapp on at $${HERMES_EASY_WEBAPP_URL%/} (point that Domain at port 9120)"
+            ;;
+          "")
+            hermes config set webapp.enabled false --force >/dev/null
+            ;;
+          *)
+            hermes config set webapp.enabled false --force >/dev/null
+            echo "[hermes-easy] WARNING: HERMES_EASY_WEBAPP_URL must start with http:// or https://. The Webapp stays off."
+            ;;
+        esac
         # On the image dated 2026.9.24 the gateway and the dashboard are s6-supervised services
         # started by the image's own boot BEFORE this seed runs, and a process hydrates its
         # secret sources once. Restart both so they come up on the config and the secrets file
