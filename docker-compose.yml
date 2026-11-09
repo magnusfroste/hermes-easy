@@ -587,9 +587,11 @@ services:
         # v0.23.0 moved the gateway's service directory to /run/hermes-service, so both places
         # are tried; on that image the old path alone skipped the restart without a word, and
         # a Webapp turned on by this boot's seed never started listening.
-        if command -v s6-svc >/dev/null 2>&1; then
+        # s6-svc lives in /command, which is not always on PATH, so that path is the fallback.
+        S6_SVC="$$(command -v s6-svc || echo /command/s6-svc)"
+        if [ -x "$$S6_SVC" ]; then
           for SVC_DIR in /run/hermes-service/gateway-default /run/service/gateway-default /run/service/dashboard; do
-            if [ -d "$$SVC_DIR" ] && s6-svc -r "$$SVC_DIR" 2>/dev/null; then
+            if [ -d "$$SVC_DIR" ] && "$$S6_SVC" -r "$$SVC_DIR" 2>/dev/null; then
               echo "[hermes-easy] restarted supervised service $$(basename "$$SVC_DIR") so it reads the seeded config and secrets"
             fi
           done
