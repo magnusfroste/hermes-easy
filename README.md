@@ -92,7 +92,7 @@ model provider catalogue; `/model` and the rest of the commands.
 | `HERMES_EASY_MODEL` / `HERMES_EASY_PROVIDER` instead of `HERMES_MODEL` | Hermes reads `HERMES_MODEL` itself and can split a served name like `garageai/auto` |
 | `HERMES_EASY_WEBAPP_URL` | The Webapp has no environment variable upstream; the seed writes its `webapp:` block, binds `0.0.0.0` so Traefik can reach it, and sets the public address |
 | Secrets written to `/dev/shm`, read through `secrets.command` | Panel variables reach the process environment, which a session's secret scope does not read; tmpfs keeps them off the volume |
-| Restart of the `gateway-default` and `dashboard` services after the seed | The image starts them before the seed runs, so they would otherwise miss its config |
+| Restart of the `gateway-default` and `dashboard` services after the seed | The image starts them before the seed runs, so they would otherwise miss its config. The seed looks in both `/run/hermes-service` (v0.23+) and `/run/service` |
 | `pull: true` on the build | A Redeploy would otherwise keep a cached `latest` |
 | `NPM_CONFIG_PREFIX`, `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR` on the volume | Tools the agent installs survive a Redeploy |
 
