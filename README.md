@@ -139,8 +139,25 @@ correctly.
 
 `docker-compose.yml` builds on `nousresearch/hermes-agent:${HERMES_TAG:-latest}` and re-pulls
 the base on every Redeploy. Since v0.22.0 upstream moves `latest` (and `stable`) only when a
-release is cut, so an unset tag means the newest release; pin `HERMES_TAG=v0.22.5`-style tags
-when you want the same image every time.
+release is cut, so an unset tag means the newest release; pin `HERMES_TAG=v0.23.1`-style tags
+when you want the same image every time. Do not pin a `canary` tag: those are pre-releases
+built daily from `main`.
+
+**Last verified: v0.23.1 (2026-11-14).** On that release, through both Domains: the boot seed
+restarts `gateway-default` and `dashboard` by itself, the model answers through a custom
+provider, and the Webapp signs in, opens its websocket and answers a chat. Nothing in this
+repo had to change between v0.23.0 and v0.23.1.
+
+Worth knowing before the next release, because both Domains are public:
+
+- Up to and including v0.23.1, signing out does not end a session: a copied token keeps
+  working for up to 30 days, also after `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` is changed.
+  Upstream fixed this after v0.23.1 ([#153855](https://github.com/NousResearch/hermes-agent/pull/153855));
+  from that release on, a new password signs everyone out.
+- Up to and including v0.23.1, `/api/status` is open without sign-in and includes adapter error
+  messages, which can name endpoint URLs and key variables (not the keys). Fixed upstream after
+  v0.23.1 ([#154137](https://github.com/NousResearch/hermes-agent/pull/154137)). The healthcheck
+  uses `/api/health` and is not affected.
 
 ## Persistence
 
@@ -175,8 +192,8 @@ a scanned document turns up.
 Two things are *not* on the volume, by design:
 
 - **Playwright browsers** ship inside the image, and the image's own
-  `PLAYWRIGHT_BROWSERS_PATH` points at them (`/opt/hermes/tools` on v0.22; it has moved
-  before), so they come back with every image. This compose file does **not** set the
+  `PLAYWRIGHT_BROWSERS_PATH` points at them (`/opt/hermes/tools` on v0.22 through v0.23.1; it
+  has moved before), so they come back with every image. This compose file does **not** set the
   variable, so the image's value always wins. Do not set it in the panel: pointed at the data
   volume it finds an empty directory and the browser tool re-downloads the set, and an
   **empty** value overrides the image's `ENV` so the tool scans `$HOME/.cache/ms-playwright`

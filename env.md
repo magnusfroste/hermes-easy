@@ -222,7 +222,7 @@ host fail with "port is already allocated" while Easypanel still reports success
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PULL_POLICY` | — | **Unused.** The image is built from the `Dockerfile`, and the base tag is re-resolved on every build by `pull: true`. |
-| `HERMES_TAG` | (empty = `latest`) | Docker Hub tag. Since v0.22.0 upstream moves `latest` and `stable` only when a release is cut (before that, `latest` was rebuilt from `main` several times a week). Pin a release tag such as `v0.22.5` when every redeploy must give the same image even after the next release. |
+| `HERMES_TAG` | (empty = `latest`) | Docker Hub tag. Since v0.22.0 upstream moves `latest` and `stable` only when a release is cut (before that, `latest` was rebuilt from `main` several times a week). Pin a release tag such as `v0.23.1` (not a `canary` tag, which is a daily pre-release) when every redeploy must give the same image even after the next release. |
 
 ## How a session sees the keys (Hermes 2026.9.24 and later)
 
@@ -254,7 +254,7 @@ memories, skills, cron, and the packages the agent installs itself. A Redeploy k
 |---|---|---|
 | `NPM_CONFIG_PREFIX` | `/opt/data/.local` | Where the agent's own `npm install -g` lands: on the volume, on PATH. |
 | `UV_TOOL_DIR` / `UV_TOOL_BIN_DIR` | `/opt/data/.local/uv-tools`, `/opt/data/.local/bin` | Same for `uv tool install`. |
-| `PLAYWRIGHT_BROWSERS_PATH` | image default | Leave unset; compose does not pass it. The image ships Chromium and points this at it (`/opt/hermes/tools` on v0.22). An empty value, or the old `/opt/hermes/.playwright`, leaves the browser tool looking in an empty directory. |
+| `PLAYWRIGHT_BROWSERS_PATH` | image default | Leave unset; compose does not pass it. The image ships Chromium and points this at it (`/opt/hermes/tools` on v0.22 through v0.23.1). An empty value, or the old `/opt/hermes/.playwright`, leaves the browser tool looking in an empty directory. |
 | `HERMES_UID` / `HERMES_GID` | `10000` | The runtime user. |
 
 Variables that older versions of `example.env` listed and the seed still honours:
