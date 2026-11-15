@@ -13,7 +13,7 @@ services:
     #
     # Since v0.22.0 upstream moves `latest` (and `stable`) only when a release is cut, so
     # leaving HERMES_TAG unset tracks the newest release, not main. Pin a Docker Hub tag
-    # (e.g. HERMES_TAG=v0.22.5) when every Redeploy must give the same image even after
+    # (e.g. HERMES_TAG=v0.23.1) when every Redeploy must give the same image even after
     # the next release.
     build:
       context: .
