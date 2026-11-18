@@ -413,10 +413,16 @@ services:
           [ -n "$$MODEL_URL" ] || MODEL_URL="$${OPENAI_BASE_URL:-}"
           if [ -n "$${M_MODEL:-}" ] && [ -n "$$MODEL_URL" ] && command -v curl >/dev/null 2>&1; then
             [ -n "$$MODEL_KEY" ] || MODEL_KEY="$${OPENAI_API_KEY:-$${PRIVATE_LLM_API_KEY:-}}"
+            # The `|| true` is load-bearing. An endpoint that refuses the connection, times out
+            # or answers without any "id" (a 401 from a vLLM started with --api-key) leaves
+            # grep -v with no input, it exits 1, and under set -e that ended the whole boot
+            # before `exec hermes gateway run`: a restart loop right after the "model ->" line,
+            # instead of the NOTE below. Measured 2026-11-18 on a customer host where
+            # 172.17.0.1:8000 did not answer from the container.
             SERVED="$$(curl -sS -m 10 "$${MODEL_URL%/}/models" \
                         $${MODEL_KEY:+-H "authorization: Bearer $$MODEL_KEY"} 2>/dev/null \
                        | tr ',' '\n' | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-                       | grep -v '^modelperm-')"   # vLLM nests a permission id called "id" too
+                       | grep -v '^modelperm-' || true)"   # vLLM nests a permission id called "id" too
             if [ -z "$$SERVED" ]; then
               echo "[hermes-easy] NOTE: $${MODEL_URL%/}/models did not answer, so the model name is unverified. If every call returns 404, this is the first thing to check."
             elif echo "$$SERVED" | grep -qxF "$$M_MODEL"; then
